@@ -26,9 +26,8 @@ export class TileManager {
   createTile(chunkX, chunkZ) {
     const geometry = new THREE.PlaneGeometry(this.tileSize, this.tileSize);
 
-    const material = new THREE.MeshBasicMaterial({
+    const material = new THREE.MeshStandardMaterial({
       map: this.floorTexture,
-      side: THREE.DoubleSide,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -36,6 +35,9 @@ export class TileManager {
     const worldX = chunkX * this.tileSize;
     const worldZ = chunkZ * this.tileSize;
     mesh.position.set(worldX, 0, worldZ);
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+
     this.scene.add(mesh);
     return mesh;
   }
