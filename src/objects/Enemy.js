@@ -70,6 +70,18 @@ export class Enemy extends THREE.Object3D {
   }
 
   update(delta) {
+    if (this.isFrozen) {
+      this.freezeTimer -= delta;
+      if (this.freezeTimer <= 0) {
+        this.isFrozen = false;
+        if (this.freezeEffect) {
+          this.remove(this.freezeEffect);
+          this.freezeEffect = null;
+        }
+      }
+      return;
+    }
+
     const direction = new THREE.Vector3();
     direction.subVectors(this.target.position, this.position);
 
@@ -151,6 +163,25 @@ export class Enemy extends THREE.Object3D {
       this.playerContactTime = 0;
     }
   }
+  freeze(duration) {
+    if (this.isFrozen) return;
+
+    this.isFrozen = true;
+    this.freezeTimer = duration;
+
+    const geometry = new THREE.SphereGeometry(0.6, 16, 16);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+    });
+
+    this.freezeEffect = new THREE.Mesh(geometry, material);
+    this.freezeEffect.position.y = 0.5;
+    this.add(this.freezeEffect);
+  }
+
   resolveCollision(otherEnemy) {
     const distance = this.position.distanceTo(otherEnemy.position);
     const minDistance = this.hitboxRadius * 2.5;

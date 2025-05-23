@@ -14,13 +14,19 @@ export class CityTileManager {
   }
 
   getTileType(x, z) {
-    if (x % 5 === 0 || z % 5 === 0) return "road"; // ruas fixas
+    if (x % 5 === 0 || z % 5 === 0) {
+      return "road";
+    }
 
     const hash = (x * 73856093) ^ (z * 19349663) ^ this.seed;
     const rand = Math.abs(Math.sin(hash) * 10000) % 1;
 
-    if (rand < 0.3) return "building";
-    if (rand < 0.6) return "park";
+    if (rand < 0.3) {
+      return "building";
+    }
+    if (rand < 0.6) {
+      return "park";
+    }
     return "empty";
   }
 

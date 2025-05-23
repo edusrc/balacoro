@@ -5,6 +5,7 @@ export class InputController {
       KeyA: false,
       KeyS: false,
       KeyD: false,
+      Space: false,
     };
 
     window.addEventListener("keydown", this.onKeyDown);

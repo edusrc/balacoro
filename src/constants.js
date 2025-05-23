@@ -12,10 +12,10 @@ export const ENEMY_DAMAGE_GROWTH = 0.75;
 export const PLAYER_RADIUS = 0.5;
 export const ENEMY_RADIUS = 0.5;
 
-export const DIFFICULTY_INCREASE_INTERVAL_SECONDS = 20;
+export const DIFFICULTY_INCREASE_INTERVAL_SECONDS = 180;
 export const INITIAL_DIFFICULTY = 0;
 
-export const PLAYER_INITIAL_HEALTH = 1200;
+export const PLAYER_INITIAL_HEALTH = 100;
 export const PLAYER_INITIAL_SPEED = 7;
 export const PLAYER_INITIAL_ATTACK_SPEED = 1;
 export const PLAYER_INITIAL_SHARPENING = 1;
@@ -24,23 +24,36 @@ export const PLAYER_INITIAL_CRITICAL_DAMAGE = 0;
 export const PLAYER_INITIAL_CRITICAL_CHANCE = 0;
 export const PLAYER_INITIAL_LIFE_STEAL = 0;
 export const INITIAL_PLAYER_SKILLS = {
-  dash: { enabled: false, cooldown: 10, growthCooldown: -0.5 },
+  dash: { enabled: true, cooldown: 10, growthCooldown: -0.5, maxCooldown: 1 },
   energyExplosion: {
-    enabled: false,
+    enabled: true,
     cooldown: 15,
     damage: 1,
+    range: 2,
     growthCooldown: -0.5,
     growthDamage: 0.05,
+    growthRange: 0.5,
+    maxCooldown: 4,
   },
   freezeExplosion: {
-    enabled: false,
+    enabled: true,
     cooldown: 15,
-    duration: 1,
+    duration: 5,
+    range: 3,
     growthCooldown: -0.5,
+    growthRange: 0.5,
     growthDuration: 0.05,
+    maxCooldown: 3,
   },
-  forceField: { enabled: false, shieldCount: 1, growthShieldCount: 1 },
-  thorns: { enabled: false, damage: 1, growthDamage: 0.05 },
+  forceField: {
+    enabled: true,
+    shieldCount: 1,
+    growthShieldCount: 1,
+    cooldown: 15,
+    growthCooldown: -0.5,
+    maxCooldown: 5,
+  },
+  thorns: { enabled: true, damage: 1, growthDamage: 0.05 },
   glowing: { enabled: false },
   projectGlowing: { enabled: false },
 };
@@ -56,7 +69,7 @@ export const PLAYER_PASSIVES = {
   },
   attackSpeed: {
     initial: PLAYER_INITIAL_ATTACK_SPEED,
-    increment: 0.2,
+    increment: 0.1,
   },
   sharpening: {
     initial: PLAYER_INITIAL_SHARPENING,
@@ -64,7 +77,7 @@ export const PLAYER_PASSIVES = {
   },
   healthRegen: {
     initial: PLAYER_INITIAL_HEALTH_REGEN,
-    increment: 0.01,
+    increment: 0.02,
   },
   criticalDamage: {
     initial: PLAYER_INITIAL_CRITICAL_DAMAGE,

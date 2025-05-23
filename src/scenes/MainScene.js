@@ -293,11 +293,17 @@ export class MainScene extends THREE.Scene {
     // Enemy attack
     const minSq = minDist * minDist;
     for (const enemy of this.enemies) {
+      if (!enemy.parent) {
+        continue;
+      }
       enemy.damageTimer = (enemy.damageTimer || 0) - delta;
       const distSq = enemy.position.distanceToSquared(this.player.position);
       if (distSq < minSq && enemy.damageTimer <= 0) {
         this.player.takeDamage(
-          Math.floor(BASE_ENEMY_DAMAGE + ENEMY_DAMAGE_GROWTH * enemy.difficulty)
+          Math.floor(
+            BASE_ENEMY_DAMAGE + ENEMY_DAMAGE_GROWTH * enemy.difficulty
+          ),
+          enemy
         );
         enemy.damageTimer = 1;
       }

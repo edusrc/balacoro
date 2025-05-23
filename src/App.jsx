@@ -37,7 +37,6 @@ export default function App() {
   useEffect(() => {
     const game = new Game(threeRef.current);
     gameRef.current = game;
-
     let animationFrameId;
 
     function updateStats() {
@@ -68,6 +67,9 @@ export default function App() {
             currentXP: player?.currentXP ?? 0,
             xpToLevelUp: player?.getXPToLevelUp?.() ?? 10,
             active_skills: player?.active_skills ?? {},
+            shieldCount: player?.shieldCount ?? 0,
+            freezeExplosionTimer: player?.freezeExplosionTimer ?? 0,
+            energyExplosionTimer: player?.energyExplosionTimer ?? 0,
           },
         });
       }
@@ -270,6 +272,272 @@ export default function App() {
             flexWrap: "wrap",
           }}
         ></div>
+      </div>
+
+      <div
+        id="hud"
+        style={{
+          position: "absolute",
+          top: "50%",
+          right: "20px",
+          transform: "translateY(-50%)",
+          zIndex: 10,
+          display: "flex",
+          flexDirection: "column",
+
+          gap: "12px",
+        }}
+      >
+        {stats.player.active_skills.dash?.enabled && (
+          <img
+            id="dashIcon"
+            src="./assets/imgs/dash.png"
+            style={{
+              width: "48px",
+              height: "48px",
+              opacity:
+                stats.player.active_skills.dash.cooldown > 0 &&
+                stats.player.dashCooldownTimer > 0
+                  ? 0.3
+                  : 1,
+              transition: "opacity 0.2s ease",
+              imageRendering: "pixelated",
+            }}
+            alt="Dash Icon"
+          />
+        )}
+
+        {stats.player.active_skills.freezeExplosion?.enabled && (
+          <div
+            id="freezeExplosionContainer"
+            style={{
+              position: "relative",
+              width: "48px",
+              height: "48px",
+              transform:
+                +stats.player.freezeExplosionTimer.toFixed(1) <= 0
+                  ? "scale(1.2)"
+                  : "scale(1)",
+              transition: "transform 0.2s ease",
+            }}
+          >
+            <img
+              src="./assets/imgs/freeze.png"
+              alt="Freeze Explosion Icon"
+              style={{
+                width: "100%",
+                height: "100%",
+                imageRendering: "pixelated",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                width: "100%",
+                height: "100%",
+                top: 0,
+                left: 0,
+                background: `conic-gradient(
+          rgba(0, 0, 0, 0.6) ${
+            (stats.player.freezeExplosionTimer /
+              stats.player.active_skills.freezeExplosion.cooldown) *
+            360
+          }deg,
+          transparent 0deg
+        )`,
+                borderRadius: "50%",
+                pointerEvents: "none",
+                zIndex: 2,
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "12px",
+                color: "#0ff",
+                textShadow: "1px 1px #000",
+                pointerEvents: "none",
+                zIndex: 3,
+              }}
+            >
+              {stats.player.active_skills.freezeExplosion?.duration ?? 0}
+            </span>
+          </div>
+        )}
+
+        {stats.player.active_skills.energyExplosion?.enabled && (
+          <div
+            id="energyExplosionContainer"
+            style={{
+              position: "relative",
+              width: "48px",
+              height: "48px",
+              transform:
+                +stats.player.energyExplosionTimer.toFixed(1) <= 0
+                  ? "scale(1.2)"
+                  : "scale(1)",
+              transition: "transform 0.2s ease",
+            }}
+          >
+            {/* Ícone de fundo */}
+            <img
+              src="./assets/imgs/explosion.png"
+              alt="Energy Explosion Icon"
+              style={{
+                width: "100%",
+                height: "100%",
+                imageRendering: "pixelated",
+              }}
+            />
+            {/* Máscara radial de cooldown */}
+            <div
+              style={{
+                position: "absolute",
+                width: "100%",
+                height: "100%",
+                top: 0,
+                left: 0,
+                background: `conic-gradient(
+          rgba(0, 0, 0, 0.6) ${
+            (stats.player.energyExplosionTimer /
+              stats.player.active_skills.energyExplosion.cooldown) *
+            360
+          }deg,
+          transparent 0deg
+        )`,
+                borderRadius: "50%",
+                pointerEvents: "none",
+                zIndex: 2,
+              }}
+            />
+            {/* Valor (dano) no centro */}
+            <span
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "12px",
+                color: "#ff0",
+                textShadow: "1px 1px #000",
+                pointerEvents: "none",
+                zIndex: 3,
+              }}
+            >
+              {stats.player.active_skills.energyExplosion?.damage ?? 0}
+            </span>
+          </div>
+        )}
+
+        {stats.player.active_skills.forceField?.enabled && (
+          <div
+            id="shieldContainer"
+            style={{
+              position: "relative",
+              width: "48px",
+              height: "48px",
+              transition: "transform 0.2s ease",
+            }}
+          >
+            <img
+              id="shieldIcon"
+              src="./assets/imgs/shield.png"
+              alt="Shield Icon"
+              style={{
+                width: "100%",
+                height: "100%",
+                imageRendering: "pixelated",
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "12px",
+                color: "#fff",
+                textShadow: "1px 1px #000",
+                pointerEvents: "none",
+              }}
+            >
+              {stats.player.shieldCount}
+            </span>
+          </div>
+        )}
+
+        {stats.player.active_skills.thorns?.enabled && (
+          <div
+            id="thornsContainer"
+            style={{
+              position: "relative",
+              width: "48px",
+              height: "48px",
+            }}
+          >
+            <img
+              id="thornsIcon"
+              src="./assets/imgs/thorns.png"
+              alt="Thorns Icon"
+              style={{
+                width: "100%",
+                height: "100%",
+                imageRendering: "pixelated",
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "12px",
+                color: "#fff",
+                textShadow: "1px 1px #000",
+                pointerEvents: "none",
+              }}
+            >
+              {stats.player.active_skills.thorns.damage}
+            </span>
+          </div>
+        )}
+
+        {/* Glowing Icon */}
+        {stats.player.active_skills.glowing?.enabled && (
+          <img
+            id="glowingIcon"
+            src="./assets/imgs/glowing.png"
+            alt="Glowing Icon"
+            style={{
+              width: "48px",
+              height: "48px",
+              imageRendering: "pixelated",
+              filter: "drop-shadow(0 0 4px #f4f025 )",
+            }}
+          />
+        )}
+
+        {/* Project Glowing Icon */}
+        {stats.player.active_skills.projectGlowing?.enabled && (
+          <img
+            id="projectGlowingIcon"
+            src="./assets/imgs/project_glowing.png"
+            alt="Project Glowing Icon"
+            style={{
+              width: "48px",
+              height: "48px",
+              imageRendering: "pixelated",
+              filter: "drop-shadow(0 0 4px #0f0)",
+            }}
+          />
+        )}
       </div>
     </div>
   );
