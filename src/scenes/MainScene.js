@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { InputController } from "../core/InputController.js";
 import { TileManager } from "../core/TileManager.js";
-import { CityTileManager } from "../core/CityTileManager.js";
+import { WorldTileManager } from "../core/WorldTileManager.js";
 import { Player } from "../objects/Player.js";
 import { Enemy } from "../objects/Enemy.js";
 import { Item } from "../objects/Item.js";
@@ -9,7 +9,6 @@ import { Projectile } from "../objects/Projectile.js";
 import { showMessage } from "../components/FloatingMessage.js";
 import {
   PLAYER_RADIUS,
-  ENEMY_RADIUS,
   ENEMY_SPAWN_INTERVAL,
   BASE_ENEMY_HEALTH,
   ENEMY_HEALTH_GROWTH,
@@ -21,18 +20,29 @@ import {
   INITIAL_DIFFICULTY,
   DIFFICULTY_INCREASE_INTERVAL_SECONDS,
   PLAYER_PASSIVES,
+  PASSIVE_COLORS,
+  PROJECTILE_SIZE,
+  BOSS_HEALTH_MULTIPLIER,
+  BOSS_SPEED,
 } from "../constants.js";
 export class MainScene extends THREE.Scene {
   constructor() {
     super();
     this.isPaused = false;
+    this.isManuallyPaused = false;
+    this.isLevelUpModalOpen = false;
+    this.isSkillChoiceModalOpen = false;
+    this.isGameOver = false;
+    this.onGameOver = null;
+    this.onPauseChange = null;
     this.clock = new THREE.Clock();
     this.inputController = new InputController();
-    this.tileManager = new CityTileManager(this, 20);
+    this.tileManager = new WorldTileManager(this, 20);
     this.enemies = [];
     this.items = [];
     this.elapsedTime = 0;
     this.currentDifficulty = 0;
+    this.highestBossDifficultySpawned = 0;
 
     this.enemySpawnTimer = 0;
     this.nextEnemySpawnTime = this._getRandomFloat(
@@ -55,24 +65,61 @@ export class MainScene extends THREE.Scene {
       this.clock.stop();
       this._showLevelUpOptions();
     };
+    this.player.onGameOver = () => {
+      this.isPaused = true;
+      this.isGameOver = true;
+      this.clock.stop();
+      if (this.onGameOver) {
+        this.onGameOver({
+          level: this.player.level,
+          elapsedTime: this.elapsedTime,
+        });
+      }
+    };
     this.add(this.player);
   }
 
+  togglePause() {
+    if (this.isGameOver) {
+      return;
+    }
+    if (this.isLevelUpModalOpen || this.isSkillChoiceModalOpen) {
+      return;
+    }
+
+    this.isManuallyPaused = !this.isManuallyPaused;
+    this.isPaused = this.isManuallyPaused;
+
+    if (this.isManuallyPaused) {
+      this.clock.stop();
+    } else {
+      this.clock.start();
+    }
+
+    if (this.onPauseChange) {
+      this.onPauseChange(this.isManuallyPaused);
+    }
+  }
+
   _showLevelUpOptions() {
+    this.isLevelUpModalOpen = true;
     const modal = document.getElementById("levelUpModal");
     const optionsDiv = document.getElementById("passiveOptions");
     optionsDiv.innerHTML = "";
 
     for (const passive of Object.keys(PLAYER_PASSIVES)) {
       const button = document.createElement("button");
+      button.className = "passive-button";
       button.innerText = passive
         .replace(/([A-Z])/g, " $1")
         .replace(/^./, (str) => str.toUpperCase());
       button.style.margin = "5px";
+      button.style.color = PASSIVE_COLORS[passive];
       button.onclick = () => {
         const value = PLAYER_PASSIVES[passive].increment;
         this.player.applyPassiveEffect({ type: passive, value });
         modal.style.display = "none";
+        this.isLevelUpModalOpen = false;
         this.clock.start();
         this.isPaused = false;
       };
@@ -87,9 +134,22 @@ export class MainScene extends THREE.Scene {
   }
 
   _getRandomSpawnAroundPlayer(min, max) {
+    const maximumAttempts = 20;
+    const { x, z } = this.player.position;
+
+    for (let attempt = 0; attempt < maximumAttempts; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = this._getRandomFloat(min, max);
+      const candidateX = x + Math.cos(angle) * dist;
+      const candidateZ = z + Math.sin(angle) * dist;
+
+      if (!this.tileManager.isWorldPositionSolid(candidateX, candidateZ)) {
+        return new THREE.Vector3(candidateX, 0, candidateZ);
+      }
+    }
+
     const angle = Math.random() * Math.PI * 2;
     const dist = this._getRandomFloat(min, max);
-    const { x, z } = this.player.position;
     return new THREE.Vector3(
       x + Math.cos(angle) * dist,
       0,
@@ -107,11 +167,7 @@ export class MainScene extends THREE.Scene {
     this.add(item);
     this.items.push(item);
 
-    showMessage(
-      `Item spawned at [${pos.x.toFixed(1)}, ${pos.z.toFixed(1)}]`,
-      "#fff",
-      "50px"
-    );
+    showMessage("An item spawned near you", "#fff", "50px");
   }
 
   _spawnEnemy(difficulty) {
@@ -135,6 +191,28 @@ export class MainScene extends THREE.Scene {
     for (let i = 0; i < count; i++) {
       this._spawnEnemy(difficulty);
     }
+  }
+
+  _spawnBoss(difficulty) {
+    const pos = this._getRandomSpawnAroundPlayer(
+      ENEMY_SPAWN_DISTANCE.min,
+      ENEMY_SPAWN_DISTANCE.max
+    );
+    const health =
+      (BASE_ENEMY_HEALTH + difficulty * ENEMY_HEALTH_GROWTH) *
+      BOSS_HEALTH_MULTIPLIER;
+    const boss = new Enemy(
+      this.player,
+      pos,
+      BOSS_SPEED,
+      health,
+      difficulty,
+      true
+    );
+    this.add(boss);
+    this.enemies.push(boss);
+
+    showMessage(`A boss has appeared! Difficulty ${difficulty}`, "#ff3333");
   }
 
   _updateProjectiles(delta) {
@@ -167,6 +245,7 @@ export class MainScene extends THREE.Scene {
   }
 
   _showSkillChoices() {
+    this.isSkillChoiceModalOpen = true;
     const modal = document.getElementById("skillChoiceModal");
     const optionsDiv = document.getElementById("skillOptions");
     optionsDiv.innerHTML = "";
@@ -234,6 +313,7 @@ export class MainScene extends THREE.Scene {
       button.onclick = () => {
         this.player.applySkillEffect(skill);
         modal.style.display = "none";
+        this.isSkillChoiceModalOpen = false;
         this.clock.start();
         this.isPaused = false;
       };
@@ -245,9 +325,7 @@ export class MainScene extends THREE.Scene {
   }
 
   _resolveCollisions(delta) {
-    const playerRadius = PLAYER_RADIUS,
-      enemyRadius = ENEMY_RADIUS,
-      minDist = playerRadius + enemyRadius;
+    const playerRadius = PLAYER_RADIUS;
 
     // Enemy-enemy
     for (let i = 0; i < this.enemies.length; i++) {
@@ -269,9 +347,22 @@ export class MainScene extends THREE.Scene {
       }
 
       for (const e of this.enemies) {
-        if (p.position.distanceToSquared(e.position) < 1) {
-          e.hit(p.damage);
-          if (p.parent) p.parent.remove(p);
+        const hitDistance = e.hitboxRadius + PROJECTILE_SIZE / 2;
+        if (
+          p.position.distanceToSquared(e.position) <
+          hitDistance * hitDistance
+        ) {
+          const projectileDamage = p.damage;
+          e.hit(projectileDamage);
+          if (p.parent) {
+            p.parent.remove(p);
+          }
+          if (this.player.lifeSteal > 0) {
+            this.player.health = Math.min(
+              this.player.health + projectileDamage * this.player.lifeSteal,
+              this.player.maxHealth
+            );
+          }
           break;
         }
       }
@@ -279,6 +370,7 @@ export class MainScene extends THREE.Scene {
 
     // Enemy-player push
     for (const enemy of this.enemies) {
+      const minDist = playerRadius + enemy.hitboxRadius;
       const distVec = new THREE.Vector3().subVectors(
         enemy.position,
         this.player.position
@@ -291,20 +383,18 @@ export class MainScene extends THREE.Scene {
     }
 
     // Enemy attack
-    const minSq = minDist * minDist;
     for (const enemy of this.enemies) {
       if (!enemy.parent) {
         continue;
       }
       enemy.damageTimer = (enemy.damageTimer || 0) - delta;
+      const minDist = playerRadius + enemy.hitboxRadius;
       const distSq = enemy.position.distanceToSquared(this.player.position);
-      if (distSq < minSq && enemy.damageTimer <= 0) {
-        this.player.takeDamage(
-          Math.floor(
-            BASE_ENEMY_DAMAGE + ENEMY_DAMAGE_GROWTH * enemy.difficulty
-          ),
-          enemy
-        );
+      if (distSq < minDist * minDist && enemy.damageTimer <= 0) {
+        const damage =
+          (BASE_ENEMY_DAMAGE + ENEMY_DAMAGE_GROWTH * enemy.difficulty) *
+          enemy.damageMultiplier;
+        this.player.takeDamage(Math.floor(damage), enemy);
         enemy.damageTimer = 1;
       }
     }
@@ -345,6 +435,11 @@ export class MainScene extends THREE.Scene {
       this.elapsedTime / DIFFICULTY_INCREASE_INTERVAL_SECONDS
     );
     this.currentDifficulty = INITIAL_DIFFICULTY + difficulty;
+
+    if (this.currentDifficulty > this.highestBossDifficultySpawned) {
+      this.highestBossDifficultySpawned = this.currentDifficulty;
+      this._spawnBoss(this.currentDifficulty);
+    }
 
     this.player.update(delta);
     const { x, y, z } = this.player.position;

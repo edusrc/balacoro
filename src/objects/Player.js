@@ -35,6 +35,7 @@ export class Player extends THREE.Object3D {
     this.onLevelUp = null;
     this.input = input;
     this.health = PLAYER_INITIAL_HEALTH;
+    this.maxHealth = PLAYER_INITIAL_HEALTH;
     this.speed = PLAYER_INITIAL_SPEED;
     this.attackSpeed = PLAYER_INITIAL_ATTACK_SPEED;
     this.attackCooldown = 0;
@@ -142,6 +143,10 @@ export class Player extends THREE.Object3D {
           mesh.material.color.copy(this.originalColor);
         }
       }
+    }
+
+    if (this.healthRegen > 0) {
+      this.health = Math.min(this.health + this.healthRegen * delta, this.maxHealth);
     }
 
     const energySkill = this.active_skills.energyExplosion;
@@ -482,12 +487,15 @@ export class Player extends THREE.Object3D {
 
   attack() {
     const projectileSpeed = this.speed + PROJECTILE_SPEED_BASE;
+    const isCritical = Math.random() < this.criticalChance;
+    const baseDamage = this.sharpening;
+    const damage = isCritical ? baseDamage * (1 + this.criticalDamage) : baseDamage;
     const projectile = new Projectile(
       this.position.clone(),
       this.lastDirection.clone(),
       projectileSpeed,
       undefined,
-      undefined,
+      damage,
       this.projectGlowing
     );
     if (this.parent) {
@@ -517,6 +525,10 @@ export class Player extends THREE.Object3D {
         break;
       case "speed":
         this.speed += effect.value;
+        break;
+      case "health":
+        this.maxHealth += effect.value;
+        this.health = Math.min(this.health + effect.value, this.maxHealth);
         break;
       default:
         console.warn(`[Player] Unknown effect type: ${effect.type}`);
@@ -640,8 +652,10 @@ export class Player extends THREE.Object3D {
     }
 
     if (this.health <= 0) {
-      alert("Game Over");
-      location.reload();
+      this.health = 0;
+      if (this.onGameOver) {
+        this.onGameOver();
+      }
     }
   }
 

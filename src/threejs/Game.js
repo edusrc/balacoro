@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { MainScene } from "../scenes/MainScene";
+import { Minimap } from "../core/Minimap";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPixelatedPass } from "three/examples/jsm/postprocessing/RenderPixelatedPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
@@ -26,6 +27,7 @@ export class Game {
     this.initPostProcessing();
     this.initInteraction();
     this.initDayNightIcon();
+    this.initMinimap();
     if (ENABLE_MINI_VIEW) {
       this.initMiniView();
     }
@@ -122,6 +124,8 @@ export class Game {
   }
 
   initMiniView() {
+    this.isMiniViewVisible = false;
+
     this.miniCanvas = document.createElement("canvas");
     Object.assign(this.miniCanvas.style, {
       position: "absolute",
@@ -131,6 +135,7 @@ export class Game {
       height: "200px",
       border: "1px solid #ccc",
       zIndex: "10",
+      display: "none",
     });
     this.container.appendChild(this.miniCanvas);
 
@@ -150,6 +155,19 @@ export class Game {
     this.miniControls.enablePan = true;
     this.miniControls.enableZoom = true;
     this.miniControls.enableRotate = true;
+
+    window.addEventListener("keydown", this.onMiniViewKeyDown);
+  }
+
+  onMiniViewKeyDown = (event) => {
+    if (event.code === "Digit1") {
+      this.isMiniViewVisible = !this.isMiniViewVisible;
+      this.miniCanvas.style.display = this.isMiniViewVisible ? "block" : "none";
+    }
+  };
+
+  initMinimap() {
+    this.minimap = new Minimap(this.container);
   }
 
   initDayNightIcon() {
@@ -231,7 +249,10 @@ export class Game {
     }
 
     this.updateSunPosition(this.totalElapsedTime);
-    if (ENABLE_MINI_VIEW) this.miniRenderer.render(this.scene, this.miniCamera);
+    this.minimap.update(this.scene.player, this.scene.enemies, this.scene.items);
+    if (ENABLE_MINI_VIEW && this.isMiniViewVisible) {
+      this.miniRenderer.render(this.scene, this.miniCamera);
+    }
     this.composer.render();
   };
 
@@ -251,6 +272,10 @@ export class Game {
 
   dispose() {
     window.removeEventListener("resize", this.onWindowResize);
+    if (ENABLE_MINI_VIEW) {
+      window.removeEventListener("keydown", this.onMiniViewKeyDown);
+    }
+    this.minimap.dispose();
     if (this.renderer && this.renderer.domElement.parentNode) {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
     }

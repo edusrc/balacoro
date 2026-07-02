@@ -3,15 +3,21 @@ import { Game } from "./threejs/Game";
 
 export default function App() {
   const threeRef = useRef(null);
+  const [gameOver, setGameOver] = useState(false);
+  const [gameOverStats, setGameOverStats] = useState({ level: 1, elapsedTime: 0 });
+  const [isCameraInfoVisible, setIsCameraInfoVisible] = useState(false);
+  const [isPlayerStatsVisible, setIsPlayerStatsVisible] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+
   const [stats, setStats] = useState({
     camPos: { x: 0, y: 0, z: 0 },
     difficulty: 0,
     elapsedTime: 0,
     player: {
       health: 100,
+      maxHealth: 100,
       attackSpeed: 1,
       speed: 5,
-      damage: 1,
       sharpening: 1,
       glowing: false,
       healthRegen: 0,
@@ -37,6 +43,13 @@ export default function App() {
   useEffect(() => {
     const game = new Game(threeRef.current);
     gameRef.current = game;
+    game.scene.onGameOver = (finalStats) => {
+      setGameOver(true);
+      setGameOverStats(finalStats);
+    };
+    game.scene.onPauseChange = (paused) => {
+      setIsPaused(paused);
+    };
     let animationFrameId;
 
     function updateStats() {
@@ -52,9 +65,9 @@ export default function App() {
           elapsedTime,
           player: {
             health: player?.health ?? 100,
+            maxHealth: player?.maxHealth ?? 100,
             attackSpeed: player?.attackSpeed ?? 1,
             speed: player?.speed ?? 5,
-            damage: player?.damage ?? 1,
             sharpening: player?.sharpening ?? 1,
             glowing: player?.glowing ?? false,
             healthRegen: player?.healthRegen ?? 0,
@@ -86,42 +99,67 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.code === "Digit2") {
+        setIsCameraInfoVisible((previousValue) => !previousValue);
+      }
+      if (event.code === "Digit3") {
+        setIsPlayerStatsVisible((previousValue) => !previousValue);
+      }
+      if (event.code === "Escape") {
+        if (gameRef.current && gameRef.current.scene) {
+          gameRef.current.scene.togglePause();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={threeRef} style={{ width: "100%", height: "100%" }} />
 
       {/* Camera info */}
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: 10,
-          color: "white",
-          background: "rgba(0,0,0,0.5)",
-          padding: "5px",
-          borderRadius: "4px",
-          pointerEvents: "none",
-          fontFamily: "monospace",
-          fontSize: "14px",
-        }}
-      >
-        <div>
-          <strong>Camera Pos:</strong> X={stats.camPos.x.toFixed(2)}, Y=
-          {stats.camPos.y.toFixed(2)}, Z={stats.camPos.z.toFixed(2)}
+      {isCameraInfoVisible && (
+        <div
+          style={{
+            position: "absolute",
+            top: 80,
+            left: 10,
+            color: "white",
+            background: "rgba(0,0,0,0.5)",
+            padding: "5px",
+            borderRadius: "4px",
+            pointerEvents: "none",
+            fontFamily: "monospace",
+            fontSize: "14px",
+          }}
+        >
+          <div>
+            <strong>Camera Pos:</strong> X={stats.camPos.x.toFixed(2)}, Y=
+            {stats.camPos.y.toFixed(2)}, Z={stats.camPos.z.toFixed(2)}
+          </div>
+          <div>
+            <strong>Difficulty:</strong> {stats.difficulty}
+          </div>
+          <div>
+            <strong>Total Time:</strong> {stats.elapsedTime.toFixed(2)} s
+          </div>
         </div>
-        <div>
-          <strong>Difficulty:</strong> {stats.difficulty}
-        </div>
-        <div>
-          <strong>Total Time:</strong> {stats.elapsedTime.toFixed(2)} s
-        </div>
-      </div>
+      )}
 
       {/* Player stats */}
+      {isPlayerStatsVisible && (
       <div
         style={{
           position: "absolute",
-          top: 110,
+          top: 160,
           left: 10,
           color: "white",
           background: "rgba(0,0,0,0.5)",
@@ -135,9 +173,6 @@ export default function App() {
       >
         <div>
           <strong>Health:</strong> {stats.player.health}
-        </div>
-        <div>
-          <strong>Damage:</strong> {stats.player.damage}
         </div>
         <div>
           <strong>Speed:</strong> {stats.player.speed}
@@ -155,7 +190,8 @@ export default function App() {
           <strong>Critical Damage:</strong> {stats.player.criticalDamage}
         </div>
         <div>
-          <strong>Critical Chance:</strong> {stats.player.criticalChance}%
+          <strong>Critical Chance:</strong>{" "}
+          {(stats.player.criticalChance * 100).toFixed(1)}%
         </div>
         <div>
           <strong>Life Steal:</strong> {stats.player.lifeSteal}
@@ -208,26 +244,48 @@ export default function App() {
           </li>
         </ul>
       </div>
+      )}
+
+      {/* HP Bar */}
+      <div
+        style={{
+          position: "absolute",
+          top: "10px",
+          left: "10px",
+          width: "220px",
+          height: "14px",
+          background: "#111",
+          border: "2px solid #fff",
+          boxShadow: "0 0 0 2px #444, 0 0 6px #b3b1b3",
+          imageRendering: "pixelated",
+          borderRadius: "3px",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${(stats.player.health / stats.player.maxHealth) * 100}%`,
+            height: "100%",
+            background: "#ff3333",
+            transition: "width 0.3s ease-in-out",
+            imageRendering: "pixelated",
+          }}
+        />
+      </div>
 
       {/* XP Bar */}
       <div
         style={{
           position: "absolute",
-          bottom: "20px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: "80%",
-          height: "32px",
+          top: "34px",
+          left: "10px",
+          width: "220px",
+          height: "8px",
           background: "#111",
-          border: "4px solid #fff",
-          boxShadow: "0 0 0 4px #444, 0 0 10px #b3b1b3",
-          fontFamily: '"Press Start 2P", monospace',
-          fontSize: "10px",
-          color: "#fff",
-          textAlign: "center",
-          lineHeight: "32px",
+          border: "2px solid #fff",
+          boxShadow: "0 0 0 2px #444, 0 0 6px #b3b1b3",
           imageRendering: "pixelated",
-          borderRadius: "8px",
+          borderRadius: "3px",
           overflow: "hidden",
         }}
       >
@@ -242,19 +300,6 @@ export default function App() {
             imageRendering: "pixelated",
           }}
         ></div>
-        <div
-          style={{
-            position: "absolute",
-            width: "100%",
-            top: 0,
-            left: 0,
-            pointerEvents: "none",
-            zIndex: 2,
-          }}
-        >
-          XP: {stats.player.currentXP.toFixed(1)} /{" "}
-          {stats.player.xpToLevelUp.toFixed(1)}
-        </div>
       </div>
 
       <div id="levelUpModal" className="level-up-modal">
@@ -539,6 +584,90 @@ export default function App() {
           />
         )}
       </div>
+
+      {isPaused && !gameOver && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0, 0, 0, 0.7)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            fontFamily: '"Press Start 2P", monospace',
+            color: "#fff",
+          }}
+        >
+          <h1
+            style={{
+              fontSize: "40px",
+              marginBottom: "20px",
+              textShadow: "0 0 20px #ffffff",
+            }}
+          >
+            PAUSED
+          </h1>
+          <p style={{ fontSize: "14px" }}>Press ESC to resume</p>
+        </div>
+      )}
+
+      {gameOver && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0, 0, 0, 0.88)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            fontFamily: '"Press Start 2P", monospace',
+            color: "#fff",
+          }}
+        >
+          <h1
+            style={{
+              fontSize: "48px",
+              marginBottom: "32px",
+              color: "#ff3333",
+              textShadow: "0 0 20px #ff0000",
+            }}
+          >
+            GAME OVER
+          </h1>
+          <p style={{ fontSize: "16px", marginBottom: "12px" }}>
+            Level: {gameOverStats.level}
+          </p>
+          <p style={{ fontSize: "16px", marginBottom: "40px" }}>
+            Time: {gameOverStats.elapsedTime?.toFixed(1)}s
+          </p>
+          <button
+            onClick={() => location.reload()}
+            style={{
+              fontFamily: '"Press Start 2P", monospace',
+              fontSize: "14px",
+              padding: "14px 28px",
+              background: "#fff",
+              color: "#000",
+              border: "none",
+              cursor: "pointer",
+              borderRadius: "4px",
+              letterSpacing: "2px",
+            }}
+          >
+            RESTART
+          </button>
+        </div>
+      )}
     </div>
   );
 }

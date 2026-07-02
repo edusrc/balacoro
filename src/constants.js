@@ -4,16 +4,22 @@ export const ENEMY_SPAWN_DISTANCE = { min: 50, max: 80 };
 export const ITEM_SPAWN_DISTANCE = { min: 20, max: 50 };
 
 export const BASE_ENEMY_HEALTH = 2;
-export const ENEMY_HEALTH_GROWTH = 0.8;
+export const ENEMY_HEALTH_GROWTH = 1;
 
 export const BASE_ENEMY_DAMAGE = 10;
-export const ENEMY_DAMAGE_GROWTH = 0.75;
+export const ENEMY_DAMAGE_GROWTH = 1;
 
 export const PLAYER_RADIUS = 0.5;
 export const ENEMY_RADIUS = 0.5;
 
 export const DIFFICULTY_INCREASE_INTERVAL_SECONDS = 180;
 export const INITIAL_DIFFICULTY = 0;
+
+export const BOSS_SIZE_MULTIPLIER = 4;
+export const BOSS_HEALTH_MULTIPLIER = 15;
+export const BOSS_DAMAGE_MULTIPLIER = 2;
+export const BOSS_XP_MULTIPLIER = 10;
+export const BOSS_SPEED = 3;
 
 export const PLAYER_INITIAL_HEALTH = 100;
 export const PLAYER_INITIAL_SPEED = 7;
@@ -24,36 +30,36 @@ export const PLAYER_INITIAL_CRITICAL_DAMAGE = 0;
 export const PLAYER_INITIAL_CRITICAL_CHANCE = 0;
 export const PLAYER_INITIAL_LIFE_STEAL = 0;
 export const INITIAL_PLAYER_SKILLS = {
-  dash: { enabled: true, cooldown: 10, growthCooldown: -0.5, maxCooldown: 1 },
+  dash: { enabled: false, cooldown: 10, growthCooldown: -0.5, maxCooldown: 1 },
   energyExplosion: {
-    enabled: true,
+    enabled: false,
     cooldown: 15,
     damage: 1,
     range: 2,
     growthCooldown: -0.5,
-    growthDamage: 0.05,
+    growthDamage: 0.4,
     growthRange: 0.5,
     maxCooldown: 4,
   },
   freezeExplosion: {
-    enabled: true,
+    enabled: false,
     cooldown: 15,
     duration: 5,
     range: 3,
     growthCooldown: -0.5,
     growthRange: 0.5,
-    growthDuration: 0.05,
+    growthDuration: 0.2,
     maxCooldown: 3,
   },
   forceField: {
-    enabled: true,
+    enabled: false,
     shieldCount: 1,
     growthShieldCount: 1,
     cooldown: 15,
     growthCooldown: -0.5,
     maxCooldown: 5,
   },
-  thorns: { enabled: true, damage: 1, growthDamage: 0.05 },
+  thorns: { enabled: false, damage: 1, growthDamage: 0.4 },
   glowing: { enabled: false },
   projectGlowing: { enabled: false },
 };
@@ -61,7 +67,7 @@ export const INITIAL_PLAYER_SKILLS = {
 export const PLAYER_PASSIVES = {
   health: {
     initial: PLAYER_INITIAL_HEALTH,
-    increment: 10,
+    increment: 15,
   },
   speed: {
     initial: PLAYER_INITIAL_SPEED,
@@ -77,20 +83,31 @@ export const PLAYER_PASSIVES = {
   },
   healthRegen: {
     initial: PLAYER_INITIAL_HEALTH_REGEN,
-    increment: 0.02,
+    increment: 0.4,
   },
   criticalDamage: {
     initial: PLAYER_INITIAL_CRITICAL_DAMAGE,
-    increment: 0.025,
+    increment: 0.05,
   },
   criticalChance: {
     initial: PLAYER_INITIAL_CRITICAL_CHANCE,
-    increment: 0.01,
+    increment: 0.03,
   },
   lifeSteal: {
     initial: PLAYER_INITIAL_LIFE_STEAL,
-    increment: 0.01,
+    increment: 0.03,
   },
+};
+
+export const PASSIVE_COLORS = {
+  health: "#33ff66",
+  speed: "#3399ff",
+  attackSpeed: "#ff3333",
+  sharpening: "#ff9900",
+  healthRegen: "#66ffcc",
+  criticalDamage: "#cc33ff",
+  criticalChance: "#ffcc00",
+  lifeSteal: "#ff0066",
 };
 
 export const PLAYER_INITIAL_LEVEL = 1;

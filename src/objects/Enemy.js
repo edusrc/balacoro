@@ -1,23 +1,42 @@
 import * as THREE from "three";
+import {
+  BOSS_SIZE_MULTIPLIER,
+  BOSS_DAMAGE_MULTIPLIER,
+  BOSS_XP_MULTIPLIER,
+} from "../constants.js";
 
 export class Enemy extends THREE.Object3D {
-  constructor(target, spawnPosition, speed = 4, health = 1, difficulty = 0) {
+  constructor(
+    target,
+    spawnPosition,
+    speed = 4,
+    health = 1,
+    difficulty = 0,
+    isBoss = false
+  ) {
     super();
     this.target = target;
     this.speed = speed;
     this.maxHealth = health;
     this.health = health;
-    this.hitboxRadius = 0.5;
+    this.isBoss = isBoss;
+    this.size = isBoss ? BOSS_SIZE_MULTIPLIER : 1;
+    this.hitboxRadius = this.size / 2;
+    this.damageMultiplier = isBoss ? BOSS_DAMAGE_MULTIPLIER : 1;
     this.playerContactTime = 0;
     this.difficulty = difficulty;
+    this.xpReward = isBoss
+      ? (difficulty || 1) * BOSS_XP_MULTIPLIER
+      : difficulty || 1;
     const factor = Math.min(this.difficulty / 10, 1);
     const r = factor;
     const g = 0;
     const b = 1 - factor;
     const color = new THREE.Color(r, g, b);
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const geometry = new THREE.BoxGeometry(this.size, this.size, this.size);
     const material = new THREE.MeshStandardMaterial({ color });
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = this.size / 2 - 0.5;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.damageTimer = 0;
@@ -26,7 +45,6 @@ export class Enemy extends THREE.Object3D {
     this.position.copy(spawnPosition);
 
     setTimeout(() => {
-      // this.addPersonalLight(color);
       this.createHealthBar();
     }, 0);
   }
@@ -45,8 +63,8 @@ export class Enemy extends THREE.Object3D {
       transparent: true,
     });
     this.healthBarSprite = new THREE.Sprite(spriteMaterial);
-    this.healthBarSprite.scale.set(1.5, 0.2, 1);
-    this.healthBarSprite.position.set(0, 1.2, 0);
+    this.healthBarSprite.scale.set(1.5 * this.size, 0.2 * this.size, 1);
+    this.healthBarSprite.position.set(0, this.size + 0.2, 0);
     this.add(this.healthBarSprite);
 
     this.updateHealthBar();
@@ -149,19 +167,6 @@ export class Enemy extends THREE.Object3D {
       }
     }
 
-    const distanceToPlayer = this.position.distanceTo(this.target.position);
-    const touching = distanceToPlayer < 1;
-
-    if (touching) {
-      this.playerContactTime += delta;
-      if (this.playerContactTime >= 1) {
-        const damage = 20 * (this.difficulty || 1);
-        this.target.takeDamage(damage);
-        this.playerContactTime = 0;
-      }
-    } else {
-      this.playerContactTime = 0;
-    }
   }
   freeze(duration) {
     if (this.isFrozen) return;
@@ -169,7 +174,7 @@ export class Enemy extends THREE.Object3D {
     this.isFrozen = true;
     this.freezeTimer = duration;
 
-    const geometry = new THREE.SphereGeometry(0.6, 16, 16);
+    const geometry = new THREE.SphereGeometry(0.6 * this.size, 16, 16);
     const material = new THREE.MeshBasicMaterial({
       color: 0x00ffff,
       transparent: true,
@@ -178,13 +183,13 @@ export class Enemy extends THREE.Object3D {
     });
 
     this.freezeEffect = new THREE.Mesh(geometry, material);
-    this.freezeEffect.position.y = 0.5;
+    this.freezeEffect.position.y = this.size / 2 - 0.5;
     this.add(this.freezeEffect);
   }
 
   resolveCollision(otherEnemy) {
     const distance = this.position.distanceTo(otherEnemy.position);
-    const minDistance = this.hitboxRadius * 2.5;
+    const minDistance = this.hitboxRadius + otherEnemy.hitboxRadius;
 
     if (distance < minDistance && distance > 0) {
       const overlap = minDistance - distance;
@@ -224,7 +229,7 @@ export class Enemy extends THREE.Object3D {
         this.parent.remove(this);
       }
       if (this.target?.gainXP) {
-        this.target.gainXP(this.difficulty || 1);
+        this.target.gainXP(this.xpReward);
       }
     }
   }
@@ -248,8 +253,8 @@ export class Enemy extends THREE.Object3D {
 
   getCollisionBoxAt(pos) {
     return new THREE.Box3().setFromCenterAndSize(
-      new THREE.Vector3(pos.x, pos.y + 0.5, pos.z),
-      new THREE.Vector3(1, 1, 1)
+      new THREE.Vector3(pos.x, pos.y + this.size / 2, pos.z),
+      new THREE.Vector3(this.size, this.size, this.size)
     );
   }
 }

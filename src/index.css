@@ -53,6 +53,10 @@ body,
   background: #d6d4d4;
 }
 
+.level-up-modal .passive-button {
+  animation: none;
+}
+
 @keyframes pulse {
   0% {
     transform: scale(1);
