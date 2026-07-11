@@ -6,6 +6,7 @@ import { RenderPixelatedPass } from "three/examples/jsm/postprocessing/RenderPix
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { setFloatingTextCamera } from "../components/createFloatingText.js";
 import { DAY_DURATION, NIGHT_DURATION, ENABLE_MINI_VIEW } from "../constants";
 
 const TOTAL_CYCLE = DAY_DURATION + NIGHT_DURATION;
@@ -56,6 +57,7 @@ export class Game {
       1000
     );
     this.camera.position.set(0, 10, 10);
+    setFloatingTextCamera(this.camera);
   }
 
   initLights() {
@@ -238,7 +240,7 @@ export class Game {
   };
 
   animate = () => {
-    requestAnimationFrame(this.animate);
+    this.animationFrameId = requestAnimationFrame(this.animate);
     this.scene.update(this.camera);
     const now = Date.now();
     const deltaMs = now - this.lastFrameTime;
@@ -249,6 +251,7 @@ export class Game {
     }
 
     this.updateSunPosition(this.totalElapsedTime);
+    this.scene.isNight = this.isNight;
     this.minimap.update(this.scene.player, this.scene.enemies, this.scene.items);
     if (ENABLE_MINI_VIEW && this.isMiniViewVisible) {
       this.miniRenderer.render(this.scene, this.miniCamera);
@@ -271,13 +274,23 @@ export class Game {
   };
 
   dispose() {
+    cancelAnimationFrame(this.animationFrameId);
     window.removeEventListener("resize", this.onWindowResize);
+    this.container.removeEventListener("mousemove", this.onMouseMove);
     if (ENABLE_MINI_VIEW) {
       window.removeEventListener("keydown", this.onMiniViewKeyDown);
     }
     this.minimap.dispose();
-    if (this.renderer && this.renderer.domElement.parentNode) {
-      this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+    if (this.miniRenderer) {
+      this.miniRenderer.dispose();
+    }
+    if (this.renderer) {
+      this.renderer.dispose();
+      if (this.renderer.domElement.parentNode) {
+        this.renderer.domElement.parentNode.removeChild(
+          this.renderer.domElement
+        );
+      }
     }
   }
 

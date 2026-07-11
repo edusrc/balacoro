@@ -5,6 +5,8 @@ export class InputController {
       KeyA: false,
       KeyS: false,
       KeyD: false,
+      KeyQ: false,
+      KeyE: false,
       Space: false,
     };
 

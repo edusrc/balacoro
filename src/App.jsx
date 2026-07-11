@@ -1,13 +1,20 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Game } from "./threejs/Game";
+import MainMenu from "./components/MainMenu.jsx";
+import CustomizeMenu from "./components/CustomizeMenu.jsx";
+import LevelUpModal from "./components/LevelUpModal.jsx";
+import SkillChoiceModal from "./components/SkillChoiceModal.jsx";
 
 export default function App() {
   const threeRef = useRef(null);
+  const [screen, setScreen] = useState("menu");
   const [gameOver, setGameOver] = useState(false);
   const [gameOverStats, setGameOverStats] = useState({ level: 1, elapsedTime: 0 });
   const [isCameraInfoVisible, setIsCameraInfoVisible] = useState(false);
   const [isPlayerStatsVisible, setIsPlayerStatsVisible] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [levelUpOpen, setLevelUpOpen] = useState(false);
+  const [skillChoices, setSkillChoices] = useState(null);
 
   const [stats, setStats] = useState({
     camPos: { x: 0, y: 0, z: 0 },
@@ -41,6 +48,10 @@ export default function App() {
   const gameRef = useRef(null);
 
   useEffect(() => {
+    if (screen !== "game") {
+      return undefined;
+    }
+
     const game = new Game(threeRef.current);
     gameRef.current = game;
     game.scene.onGameOver = (finalStats) => {
@@ -49,6 +60,12 @@ export default function App() {
     };
     game.scene.onPauseChange = (paused) => {
       setIsPaused(paused);
+    };
+    game.scene.onShowLevelUp = () => {
+      setLevelUpOpen(true);
+    };
+    game.scene.onShowSkillChoices = (skills) => {
+      setSkillChoices(skills);
     };
     let animationFrameId;
 
@@ -68,6 +85,7 @@ export default function App() {
             maxHealth: player?.maxHealth ?? 100,
             attackSpeed: player?.attackSpeed ?? 1,
             speed: player?.speed ?? 5,
+            damage: player?.damage ?? 1,
             sharpening: player?.sharpening ?? 1,
             glowing: player?.glowing ?? false,
             healthRegen: player?.healthRegen ?? 0,
@@ -83,6 +101,9 @@ export default function App() {
             shieldCount: player?.shieldCount ?? 0,
             freezeExplosionTimer: player?.freezeExplosionTimer ?? 0,
             energyExplosionTimer: player?.energyExplosionTimer ?? 0,
+            dashCooldownTimer: player?.dashCooldownTimer ?? 0,
+            dashCharges: player?.dashCharges ?? 0,
+            forceFieldCooldownTimer: player?.forceFieldCooldownTimer ?? 0,
           },
         });
       }
@@ -94,10 +115,11 @@ export default function App() {
     return () => {
       if (gameRef.current) {
         gameRef.current.dispose();
+        gameRef.current = null;
       }
       cancelAnimationFrame(animationFrameId);
     };
-  }, []);
+  }, [screen]);
 
   useEffect(() => {
     function onKeyDown(event) {
@@ -121,11 +143,31 @@ export default function App() {
     };
   }, []);
 
+  const returnToMenu = () => {
+    setScreen("menu");
+    setIsPaused(false);
+    setGameOver(false);
+    setLevelUpOpen(false);
+    setSkillChoices(null);
+  };
+
+  if (screen === "menu") {
+    return (
+      <MainMenu
+        onPlay={() => setScreen("game")}
+        onCustomize={() => setScreen("customize")}
+      />
+    );
+  }
+
+  if (screen === "customize") {
+    return <CustomizeMenu onBack={() => setScreen("menu")} />;
+  }
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={threeRef} style={{ width: "100%", height: "100%" }} />
 
-      {/* Camera info */}
       {isCameraInfoVisible && (
         <div
           style={{
@@ -154,7 +196,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Player stats */}
       {isPlayerStatsVisible && (
       <div
         style={{
@@ -176,6 +217,9 @@ export default function App() {
         </div>
         <div>
           <strong>Speed:</strong> {stats.player.speed}
+        </div>
+        <div>
+          <strong>Damage:</strong> {stats.player.damage}
         </div>
         <div>
           <strong>Attack Speed:</strong> {stats.player.attackSpeed.toFixed(2)}
@@ -246,7 +290,6 @@ export default function App() {
       </div>
       )}
 
-      {/* HP Bar */}
       <div
         style={{
           position: "absolute",
@@ -273,7 +316,6 @@ export default function App() {
         />
       </div>
 
-      {/* XP Bar */}
       <div
         style={{
           position: "absolute",
@@ -302,22 +344,25 @@ export default function App() {
         ></div>
       </div>
 
-      <div id="levelUpModal" className="level-up-modal">
-        <h3>Choose a passive to upgrade:</h3>
-        <div id="passiveOptions"></div>
-      </div>
-
-      <div id="skillChoiceModal" className="level-up-modal">
-        <h3>Choose a skill to unlock or upgrade:</h3>
-        <div
-          id="skillOptions"
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            flexWrap: "wrap",
+      {levelUpOpen && (
+        <LevelUpModal
+          onChoose={(passive) => {
+            gameRef.current?.scene.choosePassive(passive);
+            setLevelUpOpen(false);
           }}
-        ></div>
-      </div>
+        />
+      )}
+
+      {skillChoices && (
+        <SkillChoiceModal
+          skills={skillChoices}
+          activeSkills={stats.player.active_skills}
+          onChoose={(skill) => {
+            gameRef.current?.scene.chooseSkill(skill);
+            setSkillChoices(null);
+          }}
+        />
+      )}
 
       <div
         id="hud"
@@ -334,22 +379,73 @@ export default function App() {
         }}
       >
         {stats.player.active_skills.dash?.enabled && (
-          <img
-            id="dashIcon"
-            src="./assets/imgs/dash.png"
+          <div
+            id="dashContainer"
             style={{
+              position: "relative",
               width: "48px",
               height: "48px",
-              opacity:
-                stats.player.active_skills.dash.cooldown > 0 &&
-                stats.player.dashCooldownTimer > 0
-                  ? 0.3
-                  : 1,
-              transition: "opacity 0.2s ease",
-              imageRendering: "pixelated",
+              transform:
+                stats.player.dashCharges >=
+                (stats.player.active_skills.dash.charges ?? 1)
+                  ? "scale(1.2)"
+                  : "scale(1)",
+              transition: "transform 0.2s ease",
             }}
-            alt="Dash Icon"
-          />
+          >
+            <img
+              id="dashIcon"
+              src="./assets/imgs/dash.png"
+              style={{
+                width: "100%",
+                height: "100%",
+                opacity: stats.player.dashCharges > 0 ? 1 : 0.4,
+                transition: "opacity 0.2s ease",
+                imageRendering: "pixelated",
+              }}
+              alt="Dash Icon"
+            />
+            {stats.player.dashCooldownTimer > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  width: "100%",
+                  height: "100%",
+                  top: 0,
+                  left: 0,
+                  background: `conic-gradient(
+          rgba(0, 0, 0, 0.6) ${
+            (stats.player.dashCooldownTimer /
+              stats.player.active_skills.dash.cooldown) *
+            360
+          }deg,
+          transparent 0deg
+        )`,
+                  borderRadius: "50%",
+                  pointerEvents: "none",
+                  zIndex: 2,
+                }}
+              />
+            )}
+            <span
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "12px",
+                color: "#fff",
+                textShadow: "1px 1px #000",
+                pointerEvents: "none",
+                zIndex: 3,
+              }}
+            >
+              {stats.player.dashCharges > 0
+                ? stats.player.dashCharges
+                : Math.ceil(stats.player.dashCooldownTimer)}
+            </span>
+          </div>
         )}
 
         {stats.player.active_skills.freezeExplosion?.enabled && (
@@ -409,7 +505,24 @@ export default function App() {
                 zIndex: 3,
               }}
             >
-              {stats.player.active_skills.freezeExplosion?.duration ?? 0}
+              {stats.player.freezeExplosionTimer > 0
+                ? Math.ceil(stats.player.freezeExplosionTimer)
+                : stats.player.active_skills.freezeExplosion?.duration ?? 0}
+            </span>
+            <span
+              style={{
+                position: "absolute",
+                bottom: "2px",
+                right: "4px",
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "10px",
+                color: "#fff",
+                textShadow: "1px 1px #000",
+                pointerEvents: "none",
+                zIndex: 3,
+              }}
+            >
+              Q
             </span>
           </div>
         )}
@@ -428,7 +541,6 @@ export default function App() {
               transition: "transform 0.2s ease",
             }}
           >
-            {/* Ícone de fundo */}
             <img
               src="./assets/imgs/explosion.png"
               alt="Energy Explosion Icon"
@@ -438,7 +550,6 @@ export default function App() {
                 imageRendering: "pixelated",
               }}
             />
-            {/* Máscara radial de cooldown */}
             <div
               style={{
                 position: "absolute",
@@ -459,7 +570,6 @@ export default function App() {
                 zIndex: 2,
               }}
             />
-            {/* Valor (dano) no centro */}
             <span
               style={{
                 position: "absolute",
@@ -474,7 +584,24 @@ export default function App() {
                 zIndex: 3,
               }}
             >
-              {stats.player.active_skills.energyExplosion?.damage ?? 0}
+              {stats.player.energyExplosionTimer > 0
+                ? Math.ceil(stats.player.energyExplosionTimer)
+                : stats.player.active_skills.energyExplosion?.damage ?? 0}
+            </span>
+            <span
+              style={{
+                position: "absolute",
+                bottom: "2px",
+                right: "4px",
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "10px",
+                color: "#fff",
+                textShadow: "1px 1px #000",
+                pointerEvents: "none",
+                zIndex: 3,
+              }}
+            >
+              E
             </span>
           </div>
         )}
@@ -486,6 +613,11 @@ export default function App() {
               position: "relative",
               width: "48px",
               height: "48px",
+              transform:
+                stats.player.shieldCount >=
+                (stats.player.active_skills.forceField.shieldCount ?? 1)
+                  ? "scale(1.2)"
+                  : "scale(1)",
               transition: "transform 0.2s ease",
             }}
           >
@@ -499,6 +631,31 @@ export default function App() {
                 imageRendering: "pixelated",
               }}
             />
+            {stats.player.forceFieldCooldownTimer > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  width: "100%",
+                  height: "100%",
+                  top: 0,
+                  left: 0,
+                  background: `conic-gradient(
+          rgba(0, 0, 0, 0.6) ${
+            (stats.player.forceFieldCooldownTimer /
+              Math.min(
+                stats.player.active_skills.forceField.cooldown,
+                stats.player.active_skills.forceField.maxCooldown
+              )) *
+            360
+          }deg,
+          transparent 0deg
+        )`,
+                  borderRadius: "50%",
+                  pointerEvents: "none",
+                  zIndex: 2,
+                }}
+              />
+            )}
             <span
               style={{
                 position: "absolute",
@@ -554,7 +711,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Glowing Icon */}
         {stats.player.active_skills.glowing?.enabled && (
           <img
             id="glowingIcon"
@@ -569,7 +725,6 @@ export default function App() {
           />
         )}
 
-        {/* Project Glowing Icon */}
         {stats.player.active_skills.projectGlowing?.enabled && (
           <img
             id="projectGlowingIcon"
@@ -612,7 +767,43 @@ export default function App() {
           >
             PAUSED
           </h1>
-          <p style={{ fontSize: "14px" }}>Press ESC to resume</p>
+          <button
+            onClick={() => {
+              if (gameRef.current) {
+                gameRef.current.scene.togglePause();
+              }
+            }}
+            style={{
+              fontFamily: '"Press Start 2P", monospace',
+              fontSize: "14px",
+              padding: "14px 28px",
+              marginBottom: "16px",
+              background: "#fff",
+              color: "#000",
+              border: "none",
+              cursor: "pointer",
+              borderRadius: "4px",
+              letterSpacing: "2px",
+            }}
+          >
+            RESUME
+          </button>
+          <button
+            onClick={returnToMenu}
+            style={{
+              fontFamily: '"Press Start 2P", monospace',
+              fontSize: "14px",
+              padding: "14px 28px",
+              background: "transparent",
+              color: "#fff",
+              border: "2px solid #fff",
+              cursor: "pointer",
+              borderRadius: "4px",
+              letterSpacing: "2px",
+            }}
+          >
+            BACK TO MENU
+          </button>
         </div>
       )}
 

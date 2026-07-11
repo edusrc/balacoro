@@ -1,6 +1,7 @@
 export const ENEMY_SPAWN_INTERVAL = { min: 1.2, max: 2 };
 export const ITEM_SPAWN_INTERVAL = { min: 60, max: 120 };
 export const ENEMY_SPAWN_DISTANCE = { min: 50, max: 80 };
+export const ENEMY_DESPAWN_DISTANCE = 110;
 export const ITEM_SPAWN_DISTANCE = { min: 20, max: 50 };
 
 export const BASE_ENEMY_HEALTH = 2;
@@ -23,6 +24,7 @@ export const BOSS_SPEED = 3;
 
 export const PLAYER_INITIAL_HEALTH = 100;
 export const PLAYER_INITIAL_SPEED = 7;
+export const PLAYER_INITIAL_DAMAGE = 1;
 export const PLAYER_INITIAL_ATTACK_SPEED = 1;
 export const PLAYER_INITIAL_SHARPENING = 1;
 export const PLAYER_INITIAL_HEALTH_REGEN = 0;
@@ -30,7 +32,14 @@ export const PLAYER_INITIAL_CRITICAL_DAMAGE = 0;
 export const PLAYER_INITIAL_CRITICAL_CHANCE = 0;
 export const PLAYER_INITIAL_LIFE_STEAL = 0;
 export const INITIAL_PLAYER_SKILLS = {
-  dash: { enabled: false, cooldown: 10, growthCooldown: -0.5, maxCooldown: 1 },
+  dash: {
+    enabled: false,
+    cooldown: 10,
+    charges: 1,
+    growthCharges: 1,
+    growthCooldown: -0.5,
+    maxCooldown: 1,
+  },
   energyExplosion: {
     enabled: false,
     cooldown: 15,
@@ -69,6 +78,10 @@ export const PLAYER_PASSIVES = {
     initial: PLAYER_INITIAL_HEALTH,
     increment: 15,
   },
+  damage: {
+    initial: PLAYER_INITIAL_DAMAGE,
+    increment: 0.5,
+  },
   speed: {
     initial: PLAYER_INITIAL_SPEED,
     increment: 1,
@@ -101,6 +114,7 @@ export const PLAYER_PASSIVES = {
 
 export const PASSIVE_COLORS = {
   health: "#33ff66",
+  damage: "#ff5522",
   speed: "#3399ff",
   attackSpeed: "#ff3333",
   sharpening: "#ff9900",

@@ -7,6 +7,29 @@ import {
   PROJECTILE_COLOR,
 } from "../constants";
 
+const sharedGeometry = new THREE.BoxGeometry(
+  PROJECTILE_SIZE,
+  PROJECTILE_SIZE,
+  PROJECTILE_SIZE
+);
+const materialCache = new Map();
+
+function getProjectileMaterial(color, glowing) {
+  const key = `${color}_${glowing}`;
+  let material = materialCache.get(key);
+  if (!material) {
+    material = glowing
+      ? new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 1.5,
+        })
+      : new THREE.MeshStandardMaterial({ color });
+    materialCache.set(key, material);
+  }
+  return material;
+}
+
 export class Projectile extends THREE.Mesh {
   constructor(
     position,
@@ -14,19 +37,11 @@ export class Projectile extends THREE.Mesh {
     speed = PROJECTILE_SPEED_BASE,
     lifeTime = PROJECTILE_LIFETIME,
     damage = PROJECTILE_DAMAGE,
-    glowing = false
+    glowing = false,
+    pierce = 1,
+    color = PROJECTILE_COLOR
   ) {
-    const geometry = new THREE.BoxGeometry(
-      PROJECTILE_SIZE,
-      PROJECTILE_SIZE,
-      PROJECTILE_SIZE
-    );
-    const material = glowing
-      ? new THREE.MeshBasicMaterial({ color: PROJECTILE_COLOR })
-      : new THREE.MeshStandardMaterial({
-          color: PROJECTILE_COLOR,
-        });
-    super(geometry, material);
+    super(sharedGeometry, getProjectileMaterial(color, glowing));
     this.position.copy(position);
 
     this.damage = damage;
@@ -34,6 +49,8 @@ export class Projectile extends THREE.Mesh {
     this.speed = speed;
     this.lifeTime = lifeTime;
     this.glowing = glowing;
+    this.pierce = pierce;
+    this.hitEnemies = new Set();
   }
 
   update(delta) {

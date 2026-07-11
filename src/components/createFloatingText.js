@@ -30,14 +30,23 @@ export function createFloatingText(content, color, worldPos, floatAmount) {
   return el;
 }
 
+let currentCamera = null;
+
+export function setFloatingTextCamera(camera) {
+  currentCamera = camera;
+}
+
 function worldToScreen(worldPos) {
+  if (!currentCamera) {
+    return { x: -1000, y: -1000 };
+  }
+
   const canvas = document.querySelector("canvas");
   const rect = canvas.getBoundingClientRect();
   const width = rect.width;
   const height = rect.height;
 
-  const camera = window.currentCamera;
-  const vector = worldPos.clone().project(camera);
+  const vector = worldPos.clone().project(currentCamera);
 
   return {
     x: ((vector.x + 1) * width) / 2 + rect.left,

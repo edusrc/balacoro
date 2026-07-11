@@ -1,11 +1,9 @@
 import * as THREE from "three";
 import { InputController } from "../core/InputController.js";
-import { TileManager } from "../core/TileManager.js";
 import { WorldTileManager } from "../core/WorldTileManager.js";
 import { Player } from "../objects/Player.js";
 import { Enemy } from "../objects/Enemy.js";
 import { Item } from "../objects/Item.js";
-import { Projectile } from "../objects/Projectile.js";
 import { showMessage } from "../components/FloatingMessage.js";
 import {
   PLAYER_RADIUS,
@@ -17,10 +15,10 @@ import {
   ITEM_SPAWN_INTERVAL,
   ITEM_SPAWN_DISTANCE,
   ENEMY_SPAWN_DISTANCE,
+  ENEMY_DESPAWN_DISTANCE,
   INITIAL_DIFFICULTY,
   DIFFICULTY_INCREASE_INTERVAL_SECONDS,
   PLAYER_PASSIVES,
-  PASSIVE_COLORS,
   PROJECTILE_SIZE,
   BOSS_HEALTH_MULTIPLIER,
   BOSS_SPEED,
@@ -40,6 +38,12 @@ export class MainScene extends THREE.Scene {
     this.tileManager = new WorldTileManager(this, 20);
     this.enemies = [];
     this.items = [];
+    this.projectiles = [];
+    this.isNight = false;
+
+    this.shakeTime = 0;
+    this.shakeDuration = 0.25;
+    this.shakeIntensity = 0;
     this.elapsedTime = 0;
     this.currentDifficulty = 0;
     this.highestBossDifficultySpawned = 0;
@@ -103,30 +107,24 @@ export class MainScene extends THREE.Scene {
 
   _showLevelUpOptions() {
     this.isLevelUpModalOpen = true;
-    const modal = document.getElementById("levelUpModal");
-    const optionsDiv = document.getElementById("passiveOptions");
-    optionsDiv.innerHTML = "";
-
-    for (const passive of Object.keys(PLAYER_PASSIVES)) {
-      const button = document.createElement("button");
-      button.className = "passive-button";
-      button.innerText = passive
-        .replace(/([A-Z])/g, " $1")
-        .replace(/^./, (str) => str.toUpperCase());
-      button.style.margin = "5px";
-      button.style.color = PASSIVE_COLORS[passive];
-      button.onclick = () => {
-        const value = PLAYER_PASSIVES[passive].increment;
-        this.player.applyPassiveEffect({ type: passive, value });
-        modal.style.display = "none";
-        this.isLevelUpModalOpen = false;
-        this.clock.start();
-        this.isPaused = false;
-      };
-      optionsDiv.appendChild(button);
+    if (this.onShowLevelUp) {
+      this.onShowLevelUp();
     }
+  }
 
-    modal.style.display = "block";
+  choosePassive(passive) {
+    const value = PLAYER_PASSIVES[passive].increment;
+    this.player.applyPassiveEffect({ type: passive, value });
+    this.isLevelUpModalOpen = false;
+    this.clock.start();
+    this.isPaused = false;
+  }
+
+  chooseSkill(skill) {
+    this.player.applySkillEffect(skill);
+    this.isSkillChoiceModalOpen = false;
+    this.clock.start();
+    this.isPaused = false;
   }
 
   _getRandomFloat(min, max) {
@@ -216,14 +214,34 @@ export class MainScene extends THREE.Scene {
   }
 
   _updateProjectiles(delta) {
-    this.children.forEach((c) => c instanceof Projectile && c.update(delta));
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const projectile = this.projectiles[i];
+      projectile.update(delta);
+      if (!projectile.parent) this.projectiles.splice(i, 1);
+    }
   }
 
   _updateEnemies(delta) {
+    const despawnDistSq = ENEMY_DESPAWN_DISTANCE * ENEMY_DESPAWN_DISTANCE;
+
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
       enemy.update(delta);
-      if (!enemy.parent) this.enemies.splice(i, 1);
+      if (!enemy.parent) {
+        this.enemies.splice(i, 1);
+        continue;
+      }
+
+      if (
+        !enemy.isDying &&
+        enemy.position.distanceToSquared(this.player.position) > despawnDistSq
+      ) {
+        const pos = this._getRandomSpawnAroundPlayer(
+          ENEMY_SPAWN_DISTANCE.min,
+          ENEMY_SPAWN_DISTANCE.max
+        );
+        enemy.position.copy(pos);
+      }
     }
   }
 
@@ -246,9 +264,6 @@ export class MainScene extends THREE.Scene {
 
   _showSkillChoices() {
     this.isSkillChoiceModalOpen = true;
-    const modal = document.getElementById("skillChoiceModal");
-    const optionsDiv = document.getElementById("skillOptions");
-    optionsDiv.innerHTML = "";
 
     const skills = [...Item.skillTypes].filter((skill) => {
       const data = this.player.active_skills[skill];
@@ -256,7 +271,7 @@ export class MainScene extends THREE.Scene {
       return !(data?.enabled && keys.length === 1);
     });
     const chosen = [];
-    while (chosen.length < 3) {
+    while (chosen.length < 3 && skills.length > 0) {
       const skill = skills.splice(
         Math.floor(Math.random() * skills.length),
         1
@@ -266,87 +281,68 @@ export class MainScene extends THREE.Scene {
       }
     }
 
-    for (const skill of chosen) {
-      const button = document.createElement("button");
-      button.className = "skill-button";
+    if (this.onShowSkillChoices) {
+      this.onShowSkillChoices(chosen);
+    }
+  }
 
-      const tooltip = document.createElement("div");
-      tooltip.className = "skill-tooltip";
-      tooltip.innerText = skill
-        .replace(/([A-Z])/g, " $1")
-        .replace(/^./, (str) => str.toUpperCase());
+  _resolveEnemyCollisions() {
+    const cellSize = 4;
+    const grid = new Map();
 
-      const iconWrapper = document.createElement("div");
-      iconWrapper.className = "skill-icon";
-      iconWrapper.style.backgroundColor =
-        "#" + Item._getColorForSkill(skill).toString(16).padStart(6, "0");
-
-      const isUnlocked = this.player.active_skills[skill]?.enabled;
-      const info = document.createElement("div");
-      if (!isUnlocked) {
-        info.className = "skill-locked";
-      } else {
-        info.className = "skill-unlocked";
-        const skillData = this.player.active_skills[skill];
-        const visibleData = Object.entries(skillData)
-          .filter(
-            ([k, v]) =>
-              k !== "enabled" &&
-              !k.toLowerCase().includes("growth") &&
-              v !== undefined
-          )
-          .map(([k, v]) => {
-            const label = k
-              .replace(/([A-Z])/g, " $1")
-              .replace(/^./, (str) => str.toUpperCase());
-            return `${label}: ${v}`;
-          })
-          .join("\n");
-
-        info.innerText = visibleData;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const enemy = this.enemies[i];
+      const key = `${Math.floor(enemy.position.x / cellSize)}_${Math.floor(
+        enemy.position.z / cellSize
+      )}`;
+      let cell = grid.get(key);
+      if (!cell) {
+        cell = [];
+        grid.set(key, cell);
       }
-
-      button.appendChild(tooltip);
-      button.appendChild(iconWrapper);
-      button.appendChild(info);
-
-      button.onclick = () => {
-        this.player.applySkillEffect(skill);
-        modal.style.display = "none";
-        this.isSkillChoiceModalOpen = false;
-        this.clock.start();
-        this.isPaused = false;
-      };
-
-      optionsDiv.appendChild(button);
+      cell.push(i);
     }
 
-    modal.style.display = "block";
+    for (let i = 0; i < this.enemies.length; i++) {
+      const enemy = this.enemies[i];
+      const cx = Math.floor(enemy.position.x / cellSize);
+      const cz = Math.floor(enemy.position.z / cellSize);
+
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const cell = grid.get(`${cx + dx}_${cz + dz}`);
+          if (!cell) continue;
+          for (const j of cell) {
+            if (j <= i) continue;
+            enemy.resolveCollision(this.enemies[j]);
+          }
+        }
+      }
+    }
+  }
+
+  _triggerScreenShake(duration = 0.25, intensity = 0.35) {
+    this.shakeTime = duration;
+    this.shakeDuration = duration;
+    this.shakeIntensity = intensity;
   }
 
   _resolveCollisions(delta) {
     const playerRadius = PLAYER_RADIUS;
 
-    // Enemy-enemy
-    for (let i = 0; i < this.enemies.length; i++) {
-      for (let j = i + 1; j < this.enemies.length; j++) {
-        this.enemies[i].resolveCollision(this.enemies[j]);
-      }
-    }
+    this._resolveEnemyCollisions();
 
-    // Projectile-enemy
-    const projectiles = this.children.filter((c) => c instanceof Projectile);
-    for (const p of projectiles) {
+    for (const p of this.projectiles) {
+      if (!p.parent) continue;
       const box = p.getCollisionBox();
-      const hitSomething = this.tileManager.solidBoxes.some((solidBox) =>
-        solidBox.intersectsBox(box)
-      );
+      const hitSomething = this.tileManager.intersectsSolid(box);
       if (hitSomething && p.parent) {
         p.parent.remove(p);
         continue;
       }
 
       for (const e of this.enemies) {
+        if (e.isDying || p.hitEnemies.has(e)) continue;
         const hitDistance = e.hitboxRadius + PROJECTILE_SIZE / 2;
         if (
           p.position.distanceToSquared(e.position) <
@@ -354,22 +350,27 @@ export class MainScene extends THREE.Scene {
         ) {
           const projectileDamage = p.damage;
           e.hit(projectileDamage);
-          if (p.parent) {
-            p.parent.remove(p);
-          }
+          p.hitEnemies.add(e);
           if (this.player.lifeSteal > 0) {
             this.player.health = Math.min(
               this.player.health + projectileDamage * this.player.lifeSteal,
               this.player.maxHealth
             );
           }
-          break;
+
+          p.pierce -= 1;
+          if (p.pierce <= 0) {
+            if (p.parent) {
+              p.parent.remove(p);
+            }
+            break;
+          }
         }
       }
     }
 
-    // Enemy-player push
     for (const enemy of this.enemies) {
+      if (enemy.isDying) continue;
       const minDist = playerRadius + enemy.hitboxRadius;
       const distVec = new THREE.Vector3().subVectors(
         enemy.position,
@@ -382,9 +383,8 @@ export class MainScene extends THREE.Scene {
       }
     }
 
-    // Enemy attack
     for (const enemy of this.enemies) {
-      if (!enemy.parent) {
+      if (!enemy.parent || enemy.isDying) {
         continue;
       }
       enemy.damageTimer = (enemy.damageTimer || 0) - delta;
@@ -394,7 +394,10 @@ export class MainScene extends THREE.Scene {
         const damage =
           (BASE_ENEMY_DAMAGE + ENEMY_DAMAGE_GROWTH * enemy.difficulty) *
           enemy.damageMultiplier;
-        this.player.takeDamage(Math.floor(damage), enemy);
+        const tookDamage = this.player.takeDamage(Math.floor(damage), enemy);
+        if (tookDamage) {
+          this._triggerScreenShake();
+        }
         enemy.damageTimer = 1;
       }
     }
@@ -451,8 +454,19 @@ export class MainScene extends THREE.Scene {
     this._resolveCollisions(delta);
     this._updateSpawns(delta, difficulty);
 
-    camera.position.set(x, y + 10, z + 10);
+    let shakeX = 0;
+    let shakeY = 0;
+    let shakeZ = 0;
+    if (this.shakeTime > 0) {
+      this.shakeTime -= delta;
+      const strength =
+        this.shakeIntensity * Math.max(this.shakeTime / this.shakeDuration, 0);
+      shakeX = (Math.random() * 2 - 1) * strength;
+      shakeY = (Math.random() * 2 - 1) * strength;
+      shakeZ = (Math.random() * 2 - 1) * strength;
+    }
+
+    camera.position.set(x + shakeX, y + 10 + shakeY, z + 10 + shakeZ);
     camera.lookAt(x, y, z);
-    window.currentCamera = camera;
   }
 }

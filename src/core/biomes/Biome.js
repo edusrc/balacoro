@@ -1,25 +1,57 @@
 import * as THREE from "three";
+import { createTileRng } from "../WorldNoise.js";
+
+const geometryCache = new Map();
+const materialCache = new Map();
+
+function sharedGeometry(key, create) {
+  let geometry = geometryCache.get(key);
+  if (!geometry) {
+    geometry = create();
+    geometryCache.set(key, geometry);
+  }
+  return geometry;
+}
+
+function sharedMaterial(key, create) {
+  let material = materialCache.get(key);
+  if (!material) {
+    material = create();
+    materialCache.set(key, material);
+  }
+  return material;
+}
 
 export class Biome {
-  getTileHash(chunkX, chunkZ, seed, salt = 0) {
-    const hash = (chunkX * 73856093) ^ (chunkZ * 19349663) ^ (seed + salt);
-    return Math.abs(Math.sin(hash) * 10000) % 1;
+  groundColor = 0x777777;
+
+  createRng(chunkX, chunkZ, seed) {
+    return createTileRng(chunkX, chunkZ, seed);
   }
 
-  getOffsetWithinTile(chunkX, chunkZ, seed, salt, tileSize, marginRatio = 0.7) {
-    const hashX = this.getTileHash(chunkX, chunkZ, seed, salt * 17 + 3);
-    const hashZ = this.getTileHash(chunkX, chunkZ, seed, salt * 17 + 11);
+  colorMaterial(color) {
+    return sharedMaterial(`color_${color}`, () =>
+      new THREE.MeshStandardMaterial({ color })
+    );
+  }
+
+  sharedGeometry(key, create) {
+    return sharedGeometry(key, create);
+  }
+
+  randomOffset(rng, tileSize, marginRatio = 0.7) {
     const range = (tileSize / 2) * marginRatio;
     return {
-      x: (hashX - 0.5) * 2 * range,
-      z: (hashZ - 0.5) * 2 * range,
+      x: rng.float(-range, range),
+      z: rng.float(-range, range),
     };
   }
 
   createGroundTile(scene, tileSize, chunkX, chunkZ, color) {
-    const geometry = new THREE.PlaneGeometry(tileSize, tileSize);
-    const material = new THREE.MeshStandardMaterial({ color });
-    const mesh = new THREE.Mesh(geometry, material);
+    const geometry = sharedGeometry(`plane_${tileSize}`, () =>
+      new THREE.PlaneGeometry(tileSize, tileSize)
+    );
+    const mesh = new THREE.Mesh(geometry, this.colorMaterial(color));
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(chunkX * tileSize, 0, chunkZ * tileSize);
     mesh.receiveShadow = true;
@@ -34,9 +66,10 @@ export class Biome {
     const color = options.color;
 
     const structure = new THREE.Mesh(
-      new THREE.BoxGeometry(width, height, depth),
-      new THREE.MeshStandardMaterial({ color })
+      sharedGeometry("box", () => new THREE.BoxGeometry(1, 1, 1)),
+      this.colorMaterial(color)
     );
+    structure.scale.set(width, height, depth);
     structure.position.set(chunkX * tileSize, height / 2, chunkZ * tileSize);
     structure.castShadow = true;
     structure.receiveShadow = true;
@@ -58,15 +91,17 @@ export class Biome {
     const centerZ = chunkZ * tileSize + offsetZ;
 
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.2, 0.2, trunkHeight, 8),
-      new THREE.MeshStandardMaterial({ color: trunkColor })
+      sharedGeometry("cylinder8", () => new THREE.CylinderGeometry(1, 1, 1, 8)),
+      this.colorMaterial(trunkColor)
     );
-    const leaves = new THREE.Mesh(
-      new THREE.SphereGeometry(leavesRadius, 8, 8),
-      new THREE.MeshStandardMaterial({ color: leavesColor })
-    );
-
+    trunk.scale.set(0.2, trunkHeight, 0.2);
     trunk.position.set(0, trunkHeight / 2, 0);
+
+    const leaves = new THREE.Mesh(
+      sharedGeometry("sphere8", () => new THREE.SphereGeometry(1, 8, 8)),
+      this.colorMaterial(leavesColor)
+    );
+    leaves.scale.setScalar(leavesRadius);
     leaves.position.set(0, trunkHeight + leavesRadius * 0.5, 0);
 
     const group = new THREE.Group();
@@ -99,9 +134,12 @@ export class Biome {
     const centerZ = chunkZ * tileSize + offsetZ;
 
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.18, 0.22, trunkHeight, 8),
-      new THREE.MeshStandardMaterial({ color: trunkColor })
+      sharedGeometry("cylinderTaper8", () =>
+        new THREE.CylinderGeometry(0.9, 1.1, 1, 8)
+      ),
+      this.colorMaterial(trunkColor)
     );
+    trunk.scale.set(0.2, trunkHeight, 0.2);
     trunk.position.set(0, trunkHeight / 2, 0);
 
     const tierCount = 3;
@@ -112,9 +150,10 @@ export class Biome {
       const tierRadius = leavesRadius * (1 - tier * 0.25);
       const tierHeight = leavesHeight / tierCount;
       const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(tierRadius, tierHeight, 8),
-        new THREE.MeshStandardMaterial({ color: leavesColor })
+        sharedGeometry("cone8", () => new THREE.ConeGeometry(1, 1, 8)),
+        this.colorMaterial(leavesColor)
       );
+      cone.scale.set(tierRadius, tierHeight, tierRadius);
       cone.position.set(
         0,
         trunkHeight + tier * tierHeight * 0.7 + tierHeight / 2,
@@ -124,9 +163,10 @@ export class Biome {
     }
 
     const snowCap = new THREE.Mesh(
-      new THREE.SphereGeometry(leavesRadius * 0.18, 6, 6),
-      new THREE.MeshStandardMaterial({ color: 0xffffff })
+      sharedGeometry("sphere6", () => new THREE.SphereGeometry(1, 6, 6)),
+      this.colorMaterial(0xffffff)
     );
+    snowCap.scale.setScalar(leavesRadius * 0.18);
     snowCap.position.set(0, trunkHeight + leavesHeight * 0.95, 0);
     group.add(snowCap);
 
@@ -154,9 +194,12 @@ export class Biome {
     const centerZ = chunkZ * tileSize + offsetZ;
 
     const rock = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(radius, 0),
-      new THREE.MeshStandardMaterial({ color })
+      sharedGeometry("dodecahedron", () =>
+        new THREE.DodecahedronGeometry(1, 0)
+      ),
+      this.colorMaterial(color)
     );
+    rock.scale.setScalar(radius);
     rock.position.set(centerX, radius / 2, centerZ);
     rock.castShadow = true;
     rock.receiveShadow = true;
@@ -175,15 +218,18 @@ export class Biome {
     const centerZ = chunkZ * tileSize + offsetZ;
 
     const rock = new THREE.Mesh(
-      new THREE.OctahedronGeometry(radius, 0),
-      new THREE.MeshStandardMaterial({
-        color: 0xbfe9ff,
-        transparent: true,
-        opacity: 0.85,
-        roughness: 0.1,
-        metalness: 0.1,
-      })
+      sharedGeometry("octahedron", () => new THREE.OctahedronGeometry(1, 0)),
+      sharedMaterial("ice", () =>
+        new THREE.MeshStandardMaterial({
+          color: 0xbfe9ff,
+          transparent: true,
+          opacity: 0.85,
+          roughness: 0.1,
+          metalness: 0.1,
+        })
+      )
     );
+    rock.scale.setScalar(radius);
     rock.position.set(centerX, radius / 2, centerZ);
     rock.castShadow = true;
     rock.receiveShadow = true;
@@ -201,9 +247,10 @@ export class Biome {
     const offsetZ = options.offsetZ ?? 0;
 
     const clutter = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 6, 5),
-      new THREE.MeshStandardMaterial({ color })
+      sharedGeometry("sphere6_5", () => new THREE.SphereGeometry(1, 6, 5)),
+      this.colorMaterial(color)
     );
+    clutter.scale.setScalar(radius);
     clutter.position.set(
       chunkX * tileSize + offsetX,
       radius * 0.5,
@@ -216,7 +263,38 @@ export class Biome {
     return { mesh: clutter };
   }
 
+  createHalfDome(scene, tileSize, chunkX, chunkZ, options = {}) {
+    const radius = options.radius ?? 1;
+    const color = options.color ?? 0xffffff;
+    const offsetX = options.offsetX ?? 0;
+    const offsetZ = options.offsetZ ?? 0;
+    const centerX = chunkX * tileSize + offsetX;
+    const centerZ = chunkZ * tileSize + offsetZ;
+
+    const dome = new THREE.Mesh(
+      sharedGeometry("halfSphere", () =>
+        new THREE.SphereGeometry(1, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2)
+      ),
+      this.colorMaterial(color)
+    );
+    dome.scale.setScalar(radius);
+    dome.position.set(centerX, 0, centerZ);
+    dome.receiveShadow = true;
+    scene.add(dome);
+
+    const solidBox = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(centerX, radius * 0.3, centerZ),
+      new THREE.Vector3(radius * 1.2, radius * 0.6, radius * 1.2)
+    );
+
+    return { mesh: dome, solidBox };
+  }
+
   createTile() {
     throw new Error("createTile must be implemented by a Biome subclass");
+  }
+
+  populate() {
+    throw new Error("populate must be implemented by a Biome subclass");
   }
 }
