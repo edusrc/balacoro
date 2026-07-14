@@ -3,6 +3,14 @@ import { Biome } from "./Biome.js";
 export class ForestBiome extends Biome {
   groundColor = 0x355e3b;
 
+  populatePOI(scene, tileSize, chunkX, chunkZ, rng, out) {
+    if (rng.next() < 0.4) {
+      this.populateCampfire(scene, tileSize, chunkX, chunkZ, rng, out);
+      return;
+    }
+    this.populateRuins(scene, tileSize, chunkX, chunkZ, rng, out);
+  }
+
   populate(scene, tileSize, chunkX, chunkZ, seed, out, density = 1) {
     const rng = this.createRng(chunkX, chunkZ, seed);
 

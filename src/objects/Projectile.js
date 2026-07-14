@@ -12,6 +12,7 @@ const sharedGeometry = new THREE.BoxGeometry(
   PROJECTILE_SIZE,
   PROJECTILE_SIZE
 );
+sharedGeometry.translate(0, 0.5, 0);
 const materialCache = new Map();
 
 function getProjectileMaterial(color, glowing) {

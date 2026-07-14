@@ -2,8 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { Game } from "./threejs/Game";
 import MainMenu from "./components/MainMenu.jsx";
 import CustomizeMenu from "./components/CustomizeMenu.jsx";
+import MonsterLabMenu from "./components/MonsterLabMenu.jsx";
 import LevelUpModal from "./components/LevelUpModal.jsx";
 import SkillChoiceModal from "./components/SkillChoiceModal.jsx";
+import CoinIcon from "./components/CoinIcon.jsx";
+import { addCoins as bankCoins } from "./core/wallet.js";
 
 export default function App() {
   const threeRef = useRef(null);
@@ -20,6 +23,7 @@ export default function App() {
     camPos: { x: 0, y: 0, z: 0 },
     difficulty: 0,
     elapsedTime: 0,
+    clock: "12:00",
     player: {
       health: 100,
       maxHealth: 100,
@@ -57,6 +61,7 @@ export default function App() {
     game.scene.onGameOver = (finalStats) => {
       setGameOver(true);
       setGameOverStats(finalStats);
+      bankCoins(finalStats.coins ?? 0);
     };
     game.scene.onPauseChange = (paused) => {
       setIsPaused(paused);
@@ -74,12 +79,16 @@ export default function App() {
         const { x, y, z } = gameRef.current.camera.position;
         const difficulty = gameRef.current.scene.currentDifficulty || 0;
         const elapsedTime = gameRef.current.scene.elapsedTime || 0;
+        const clock = gameRef.current.clockText ?? "12:00";
+        const coins = gameRef.current.scene.coinsEarned ?? 0;
         const player = gameRef.current.scene.player;
 
         setStats({
           camPos: { x, y, z },
           difficulty,
           elapsedTime,
+          clock,
+          coins,
           player: {
             health: player?.health ?? 100,
             maxHealth: player?.maxHealth ?? 100,
@@ -144,6 +153,9 @@ export default function App() {
   }, []);
 
   const returnToMenu = () => {
+    if (!gameOver) {
+      bankCoins(gameRef.current?.scene?.coinsEarned ?? 0);
+    }
     setScreen("menu");
     setIsPaused(false);
     setGameOver(false);
@@ -156,12 +168,17 @@ export default function App() {
       <MainMenu
         onPlay={() => setScreen("game")}
         onCustomize={() => setScreen("customize")}
+        onMonsterLab={() => setScreen("monsterlab")}
       />
     );
   }
 
   if (screen === "customize") {
     return <CustomizeMenu onBack={() => setScreen("menu")} />;
+  }
+
+  if (screen === "monsterlab") {
+    return <MonsterLabMenu onBack={() => setScreen("menu")} />;
   }
 
   return (
@@ -342,6 +359,45 @@ export default function App() {
             imageRendering: "pixelated",
           }}
         ></div>
+      </div>
+
+      <div
+        style={{
+          position: "absolute",
+          top: "12px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          fontFamily: '"Press Start 2P", monospace',
+          fontSize: "16px",
+          color: "#ffd23e",
+          textShadow: "2px 2px #000",
+          pointerEvents: "none",
+          zIndex: 10,
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+        }}
+      >
+        <CoinIcon size={16} />
+        {stats.coins}
+      </div>
+
+      <div
+        style={{
+          position: "absolute",
+          bottom: "232px",
+          right: "20px",
+          width: "200px",
+          textAlign: "center",
+          fontFamily: '"Press Start 2P", monospace',
+          fontSize: "13px",
+          color: "#fff",
+          textShadow: "2px 2px #000",
+          pointerEvents: "none",
+          zIndex: 20,
+        }}
+      >
+        {stats.clock}
       </div>
 
       {levelUpOpen && (
@@ -838,8 +894,20 @@ export default function App() {
           <p style={{ fontSize: "16px", marginBottom: "12px" }}>
             Level: {gameOverStats.level}
           </p>
-          <p style={{ fontSize: "16px", marginBottom: "40px" }}>
+          <p style={{ fontSize: "16px", marginBottom: "12px" }}>
             Time: {gameOverStats.elapsedTime?.toFixed(1)}s
+          </p>
+          <p
+            style={{
+              fontSize: "16px",
+              marginBottom: "40px",
+              color: "#ffd23e",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <CoinIcon size={16} /> +{gameOverStats.coins ?? 0}
           </p>
           <button
             onClick={() => location.reload()}

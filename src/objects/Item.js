@@ -1,17 +1,44 @@
 import * as THREE from "three";
 import { INITIAL_PLAYER_SKILLS } from "../constants.js";
 
-export class Item extends THREE.Mesh {
+const chestBodyGeometry = new THREE.BoxGeometry(0.7, 0.42, 0.5);
+const chestLidGeometry = new THREE.BoxGeometry(0.74, 0.2, 0.54);
+const chestBandGeometry = new THREE.BoxGeometry(0.76, 0.44, 0.12);
+const chestLockGeometry = new THREE.BoxGeometry(0.14, 0.16, 0.06);
+const chestBodyMaterial = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+const chestLidMaterial = new THREE.MeshStandardMaterial({ color: 0x6e4523 });
+const chestGoldMaterial = new THREE.MeshBasicMaterial({ color: 0xffd23e });
+
+export class Item extends THREE.Group {
   static skillTypes = Object.keys(INITIAL_PLAYER_SKILLS);
 
   constructor(position) {
-    const { type, color } = Item.getRandomSkill();
-    const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const material = new THREE.MeshStandardMaterial({ color });
-    super(geometry, material);
+    super();
+    const { type } = Item.getRandomSkill();
+    this.effectType = type;
+
+    const body = new THREE.Mesh(chestBodyGeometry, chestBodyMaterial);
+    body.position.y = 0.21;
+
+    const lid = new THREE.Mesh(chestLidGeometry, chestLidMaterial);
+    lid.position.y = 0.5;
+
+    const band = new THREE.Mesh(chestBandGeometry, chestGoldMaterial);
+    band.position.y = 0.22;
+
+    const lock = new THREE.Mesh(chestLockGeometry, chestGoldMaterial);
+    lock.position.set(0, 0.42, 0.28);
+
+    this.add(body, lid, band, lock);
+    this.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+      }
+    });
 
     this.position.copy(position);
-    this.effectType = type;
+    this.baseY = position.y;
+    this.bobTime = Math.random() * Math.PI * 2;
   }
 
   static getRandomSkill() {
@@ -44,5 +71,7 @@ export class Item extends THREE.Mesh {
 
   update(delta) {
     this.rotation.y += delta;
+    this.bobTime += delta;
+    this.position.y = this.baseY + Math.sin(this.bobTime * 2) * 0.08;
   }
 }

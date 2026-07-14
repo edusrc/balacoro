@@ -1,11 +1,13 @@
 import * as THREE from "three";
-import { fractalNoise2D } from "./WorldNoise.js";
+import { fractalNoise2D, createTileRng } from "./WorldNoise.js";
 import { CityBiome } from "./biomes/CityBiome.js";
 import { ForestBiome } from "./biomes/ForestBiome.js";
 import { DesertBiome } from "./biomes/DesertBiome.js";
 import { SnowBiome } from "./biomes/SnowBiome.js";
 
 const CITY_SIZE_IN_CHUNKS = 6;
+const CITY_REGION_SIZE = 24;
+const CITY_CHANCE = 0.4;
 const BIOME_NOISE_FREQUENCY = 0.06;
 const SNOW_MAX = 0.42;
 const FOREST_MAX = 0.58;
@@ -28,6 +30,43 @@ export class WorldTileManager {
     this._scratchPoint = new THREE.Vector3();
     this._scratchColorA = new THREE.Color();
     this._scratchColorB = new THREE.Color();
+    this._cityRectCache = new Map();
+  }
+
+  _getCityRect(regionX, regionZ) {
+    const key = `${regionX}_${regionZ}`;
+    if (this._cityRectCache.has(key)) {
+      return this._cityRectCache.get(key);
+    }
+
+    const rng = createTileRng(regionX, regionZ, this.seed ^ 0xc17e);
+    let rect = null;
+    if (rng.next() < CITY_CHANCE) {
+      const maxOffset = CITY_REGION_SIZE - CITY_SIZE_IN_CHUNKS;
+      const minX = regionX * CITY_REGION_SIZE + rng.int(0, maxOffset);
+      const minZ = regionZ * CITY_REGION_SIZE + rng.int(0, maxOffset);
+      rect = {
+        minX,
+        minZ,
+        maxX: minX + CITY_SIZE_IN_CHUNKS,
+        maxZ: minZ + CITY_SIZE_IN_CHUNKS,
+      };
+    }
+    this._cityRectCache.set(key, rect);
+    return rect;
+  }
+
+  _isCityChunk(chunkX, chunkZ) {
+    const regionX = Math.floor(chunkX / CITY_REGION_SIZE);
+    const regionZ = Math.floor(chunkZ / CITY_REGION_SIZE);
+    const rect = this._getCityRect(regionX, regionZ);
+    return (
+      rect !== null &&
+      chunkX >= rect.minX &&
+      chunkX < rect.maxX &&
+      chunkZ >= rect.minZ &&
+      chunkZ < rect.maxZ
+    );
   }
 
   _tileKey(chunkX, chunkZ) {
@@ -39,12 +78,7 @@ export class WorldTileManager {
   }
 
   getBiomeSample(chunkX, chunkZ) {
-    if (
-      chunkX >= 0 &&
-      chunkX < CITY_SIZE_IN_CHUNKS &&
-      chunkZ >= 0 &&
-      chunkZ < CITY_SIZE_IN_CHUNKS
-    ) {
+    if (this._isCityChunk(chunkX, chunkZ)) {
       return { primary: "city", secondary: null, blend: 0 };
     }
 
@@ -123,14 +157,53 @@ export class WorldTileManager {
 
     const out = { meshes: [], solidBoxes: [] };
     out.meshes.push(
-      primary.createGroundTile(
+      primary.createPatchyGroundTile(
         this.scene,
         this.tileSize,
         chunkX,
         chunkZ,
-        groundColor
+        groundColor,
+        this.seed
       )
     );
+
+    if (chunkX === 0 && chunkZ === 0) {
+      return out;
+    }
+
+    if (!sample.secondary) {
+      const poiRng = primary.createRng(chunkX, chunkZ, this.seed ^ 0x90d1);
+      const poiRoll = poiRng.next();
+      if (poiRoll < 0.006) {
+        primary.populateVillage(
+          this.scene,
+          this.tileSize,
+          chunkX,
+          chunkZ,
+          poiRng,
+          out
+        );
+        return out;
+      }
+      if (poiRoll < 0.02) {
+        primary.populatePOI(
+          this.scene,
+          this.tileSize,
+          chunkX,
+          chunkZ,
+          poiRng,
+          out
+        );
+        return out;
+      }
+    }
+
+    const clump = fractalNoise2D(
+      chunkX * 0.13,
+      chunkZ * 0.13,
+      this.seed ^ 0x7e55
+    );
+    const clumpFactor = 0.15 + clump * 1.7;
 
     primary.populate(
       this.scene,
@@ -139,7 +212,7 @@ export class WorldTileManager {
       chunkZ,
       this.seed,
       out,
-      1 - sample.blend
+      Math.min((1 - sample.blend) * clumpFactor, 1.4)
     );
 
     if (sample.secondary) {
@@ -150,11 +223,16 @@ export class WorldTileManager {
         chunkZ,
         this.seed ^ 0x5bd1e995,
         out,
-        sample.blend
+        Math.min(sample.blend * clumpFactor, 1.4)
       );
     }
 
     return out;
+  }
+
+  getBiomeNameAt(x, z) {
+    return this.getBiomeSample(this._worldToChunk(x), this._worldToChunk(z))
+      .primary;
   }
 
   isWorldPositionSolid(x, z) {
@@ -205,6 +283,8 @@ export class WorldTileManager {
       this.scene.remove(mesh);
       if (mesh.isInstancedMesh) {
         mesh.dispose();
+      } else if (mesh.userData.disposeGeometry) {
+        mesh.geometry.dispose();
       }
     }
   }

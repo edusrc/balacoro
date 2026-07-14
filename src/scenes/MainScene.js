@@ -39,6 +39,7 @@ export class MainScene extends THREE.Scene {
     this.enemies = [];
     this.items = [];
     this.projectiles = [];
+    this.coinsEarned = 0;
     this.isNight = false;
 
     this.shakeTime = 0;
@@ -77,10 +78,15 @@ export class MainScene extends THREE.Scene {
         this.onGameOver({
           level: this.player.level,
           elapsedTime: this.elapsedTime,
+          coins: this.coinsEarned,
         });
       }
     };
     this.add(this.player);
+  }
+
+  addCoins(amount) {
+    this.coinsEarned += amount;
   }
 
   togglePause() {
@@ -134,6 +140,8 @@ export class MainScene extends THREE.Scene {
   _getRandomSpawnAroundPlayer(min, max) {
     const maximumAttempts = 20;
     const { x, z } = this.player.position;
+    const spawnBox = new THREE.Box3();
+    const spawnCenter = new THREE.Vector3();
 
     for (let attempt = 0; attempt < maximumAttempts; attempt++) {
       const angle = Math.random() * Math.PI * 2;
@@ -141,7 +149,11 @@ export class MainScene extends THREE.Scene {
       const candidateX = x + Math.cos(angle) * dist;
       const candidateZ = z + Math.sin(angle) * dist;
 
-      if (!this.tileManager.isWorldPositionSolid(candidateX, candidateZ)) {
+      spawnBox.setFromCenterAndSize(
+        spawnCenter.set(candidateX, 1.5, candidateZ),
+        new THREE.Vector3(3, 3, 3)
+      );
+      if (!this.tileManager.intersectsSolid(spawnBox)) {
         return new THREE.Vector3(candidateX, 0, candidateZ);
       }
     }
@@ -173,12 +185,19 @@ export class MainScene extends THREE.Scene {
       ENEMY_SPAWN_DISTANCE.min,
       ENEMY_SPAWN_DISTANCE.max
     );
+    const biome = this.tileManager.getBiomeNameAt(pos.x, pos.z);
+    const biasMap = { snow: "tank", desert: "runner", city: "brute" };
+    const bias = biasMap[biome];
+    const forcedArchetype =
+      bias && Math.random() < 0.4 ? bias : undefined;
     const enemy = new Enemy(
       this.player,
       pos,
       4,
       BASE_ENEMY_HEALTH + difficulty * ENEMY_HEALTH_GROWTH,
-      difficulty
+      difficulty,
+      false,
+      forcedArchetype
     );
     this.add(enemy);
     this.enemies.push(enemy);
@@ -241,6 +260,24 @@ export class MainScene extends THREE.Scene {
           ENEMY_SPAWN_DISTANCE.max
         );
         enemy.position.copy(pos);
+        continue;
+      }
+
+      enemy.solidCheckTimer = (enemy.solidCheckTimer ?? Math.random()) - delta;
+      if (enemy.solidCheckTimer <= 0) {
+        enemy.solidCheckTimer = 1.5;
+        if (
+          !enemy.isDying &&
+          this.tileManager.intersectsSolid(
+            enemy.getCollisionBoxAt(enemy.position)
+          )
+        ) {
+          const pos = this._getRandomSpawnAroundPlayer(
+            ENEMY_SPAWN_DISTANCE.min,
+            ENEMY_SPAWN_DISTANCE.max
+          );
+          enemy.position.copy(pos);
+        }
       }
     }
   }

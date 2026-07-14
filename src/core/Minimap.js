@@ -1,3 +1,10 @@
+const BIOME_COLORS = {
+  city: "#4a4a52",
+  forest: "#2e5d3a",
+  desert: "#c9b071",
+  snow: "#cfe6f2",
+};
+
 export class Minimap {
   constructor(container, range = 60) {
     this.container = container;
@@ -23,7 +30,7 @@ export class Minimap {
     this.container.appendChild(this.canvasElement);
   }
 
-  update(player, enemies, items) {
+  update(player, enemies, items, tileManager) {
     if (!player) {
       return;
     }
@@ -37,6 +44,17 @@ export class Minimap {
 
     this.renderingContext.clearRect(0, 0, canvasWidth, canvasHeight);
     this.drawBackgroundCircle(centerX, centerY, maximumRadius);
+
+    if (tileManager) {
+      this.renderBiomeLayer(
+        player.position,
+        tileManager,
+        centerX,
+        centerY,
+        scale,
+        maximumRadius
+      );
+    }
 
     for (const enemy of enemies) {
       if (enemy.isBoss) {
@@ -74,6 +92,50 @@ export class Minimap {
     }
 
     this.drawPlayerDot(centerX, centerY);
+  }
+
+  renderBiomeLayer(
+    playerPosition,
+    tileManager,
+    centerX,
+    centerY,
+    scale,
+    maximumRadius
+  ) {
+    const ctx = this.renderingContext;
+    const cellWorld = 10;
+    const startX =
+      Math.floor((playerPosition.x - this.range) / cellWorld) * cellWorld;
+    const startZ =
+      Math.floor((playerPosition.z - this.range) / cellWorld) * cellWorld;
+    const endX = playerPosition.x + this.range;
+    const endZ = playerPosition.z + this.range;
+    const cellPx = cellWorld * scale;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, maximumRadius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.globalAlpha = 0.55;
+
+    for (let wx = startX; wx <= endX; wx += cellWorld) {
+      for (let wz = startZ; wz <= endZ; wz += cellWorld) {
+        const biome = tileManager.getBiomeNameAt(
+          wx + cellWorld / 2,
+          wz + cellWorld / 2
+        );
+        ctx.fillStyle = BIOME_COLORS[biome] ?? "#222";
+        ctx.fillRect(
+          centerX + (wx - playerPosition.x) * scale,
+          centerY + (wz - playerPosition.z) * scale,
+          cellPx + 0.5,
+          cellPx + 0.5
+        );
+      }
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   drawBackgroundCircle(centerX, centerY, radius) {

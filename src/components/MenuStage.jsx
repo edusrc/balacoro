@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { createHat, createGlasses, createEars } from "../core/cosmetics.js";
 
-const PIXEL_SCALE = 4;
+const PIXEL_SCALE = 3;
 const CUBE_X = 2.2;
 
 export const MENU_CSS = `

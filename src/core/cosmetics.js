@@ -8,23 +8,23 @@ export const PLAYER_COLORS = [
 ];
 
 export const HAT_OPTIONS = [
-  { id: "none", label: "NONE" },
-  { id: "top", label: "TOP HAT" },
-  { id: "cap", label: "CAP" },
-  { id: "wizard", label: "WIZARD" },
+  { id: "none", label: "NONE", price: 0 },
+  { id: "cap", label: "CAP", price: 150 },
+  { id: "top", label: "TOP HAT", price: 300 },
+  { id: "wizard", label: "WIZARD", price: 500 },
 ];
 
 export const GLASSES_OPTIONS = [
-  { id: "none", label: "NONE" },
-  { id: "sun", label: "SUNGLASSES" },
-  { id: "nerd", label: "NERD" },
+  { id: "none", label: "NONE", price: 0 },
+  { id: "nerd", label: "NERD", price: 200 },
+  { id: "sun", label: "SUNGLASSES", price: 250 },
 ];
 
 export const EAR_OPTIONS = [
-  { id: "none", label: "NONE" },
-  { id: "cat", label: "CAT EARS" },
-  { id: "bunny", label: "BUNNY EARS" },
-  { id: "horns", label: "HORNS" },
+  { id: "none", label: "NONE", price: 0 },
+  { id: "cat", label: "CAT EARS", price: 300 },
+  { id: "horns", label: "HORNS", price: 350 },
+  { id: "bunny", label: "BUNNY EARS", price: 400 },
 ];
 
 export function createEars(type) {

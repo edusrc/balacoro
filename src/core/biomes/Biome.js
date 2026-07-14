@@ -1,8 +1,24 @@
 import * as THREE from "three";
-import { createTileRng } from "../WorldNoise.js";
+import { createTileRng, fractalNoise2D } from "../WorldNoise.js";
 
 const geometryCache = new Map();
 const materialCache = new Map();
+
+const patchyGroundMaterial = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+});
+const waterMaterial = new THREE.MeshStandardMaterial({
+  color: 0x2f7fbf,
+  roughness: 0.2,
+  metalness: 0.1,
+});
+const iceLakeMaterial = new THREE.MeshStandardMaterial({
+  color: 0xbfe9ff,
+  roughness: 0.05,
+  metalness: 0.2,
+});
+const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xff7a26 });
+const lampBulbMaterial = new THREE.MeshBasicMaterial({ color: 0xfff0b0 });
 
 function sharedGeometry(key, create) {
   let geometry = geometryCache.get(key);
@@ -59,18 +75,74 @@ export class Biome {
     return mesh;
   }
 
+  createPatchyGroundTile(scene, tileSize, chunkX, chunkZ, baseColor, seed) {
+    const segments = 4;
+    const geometry = new THREE.PlaneGeometry(
+      tileSize,
+      tileSize,
+      segments,
+      segments
+    ).toNonIndexed();
+
+    const positions = geometry.getAttribute("position");
+    const colors = new Float32Array(positions.count * 3);
+    const base = new THREE.Color(baseColor);
+    const cellColor = new THREE.Color();
+    const centerX = chunkX * tileSize;
+    const centerZ = chunkZ * tileSize;
+
+    for (let start = 0; start < positions.count; start += 6) {
+      let sumX = 0;
+      let sumY = 0;
+      for (let v = 0; v < 6; v++) {
+        sumX += positions.getX(start + v);
+        sumY += positions.getY(start + v);
+      }
+      const worldX = centerX + sumX / 6;
+      const worldZ = centerZ - sumY / 6;
+
+      const coarse = fractalNoise2D(worldX * 0.06, worldZ * 0.06, seed ^ 0x51ce);
+      const fine = fractalNoise2D(worldX * 0.9, worldZ * 0.9, seed ^ 0xabc1);
+      const factor = 0.82 + coarse * 0.28 + fine * 0.12;
+      cellColor.copy(base).multiplyScalar(factor);
+
+      for (let v = 0; v < 6; v++) {
+        const index = (start + v) * 3;
+        colors[index] = cellColor.r;
+        colors[index + 1] = cellColor.g;
+        colors[index + 2] = cellColor.b;
+      }
+    }
+
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    const mesh = new THREE.Mesh(geometry, patchyGroundMaterial);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(centerX, 0, centerZ);
+    mesh.receiveShadow = true;
+    mesh.userData.disposeGeometry = true;
+    scene.add(mesh);
+    return mesh;
+  }
+
   createBoxStructure(scene, tileSize, chunkX, chunkZ, options) {
     const width = options.width;
     const height = options.height;
     const depth = options.depth;
     const color = options.color;
+    const offsetX = options.offsetX ?? 0;
+    const offsetZ = options.offsetZ ?? 0;
 
     const structure = new THREE.Mesh(
       sharedGeometry("box", () => new THREE.BoxGeometry(1, 1, 1)),
       this.colorMaterial(color)
     );
     structure.scale.set(width, height, depth);
-    structure.position.set(chunkX * tileSize, height / 2, chunkZ * tileSize);
+    structure.position.set(
+      chunkX * tileSize + offsetX,
+      height / 2,
+      chunkZ * tileSize + offsetZ
+    );
     structure.castShadow = true;
     structure.receiveShadow = true;
     scene.add(structure);
@@ -288,6 +360,169 @@ export class Biome {
     );
 
     return { mesh: dome, solidBox };
+  }
+
+  createLakeDisc(scene, tileSize, chunkX, chunkZ, radius, material) {
+    const disc = new THREE.Mesh(
+      sharedGeometry("circle32", () => new THREE.CircleGeometry(1, 32)),
+      material
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.scale.setScalar(radius);
+    disc.position.set(chunkX * tileSize, 0.03, chunkZ * tileSize);
+    disc.receiveShadow = true;
+    scene.add(disc);
+    return disc;
+  }
+
+  createWaterDisc(scene, tileSize, chunkX, chunkZ, radius) {
+    return this.createLakeDisc(
+      scene,
+      tileSize,
+      chunkX,
+      chunkZ,
+      radius,
+      waterMaterial
+    );
+  }
+
+  createIceDisc(scene, tileSize, chunkX, chunkZ, radius) {
+    return this.createLakeDisc(
+      scene,
+      tileSize,
+      chunkX,
+      chunkZ,
+      radius,
+      iceLakeMaterial
+    );
+  }
+
+  populateRuins(scene, tileSize, chunkX, chunkZ, rng, out) {
+    const pillarCount = 5 + rng.int(0, 2);
+    const radius = rng.float(4.5, 6);
+    for (let i = 0; i < pillarCount; i++) {
+      const angle = (i / pillarCount) * Math.PI * 2 + rng.float(-0.25, 0.25);
+      const height =
+        rng.next() < 0.3 ? rng.float(0.5, 0.9) : rng.float(1.4, 2.8);
+      const pillar = this.createBoxStructure(scene, tileSize, chunkX, chunkZ, {
+        width: 0.9,
+        height,
+        depth: 0.9,
+        color: 0x8a8f94,
+        offsetX: Math.cos(angle) * radius,
+        offsetZ: Math.sin(angle) * radius,
+      });
+      out.meshes.push(pillar.mesh);
+      out.solidBoxes.push(pillar.solidBox);
+    }
+  }
+
+  populateCampfire(scene, tileSize, chunkX, chunkZ, rng, out) {
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2 + rng.float(-0.2, 0.2);
+      const stone = this.createRock(scene, tileSize, chunkX, chunkZ, {
+        radius: rng.float(0.22, 0.38),
+        color: 0x6f6f6f,
+        offsetX: Math.cos(angle) * 1.2,
+        offsetZ: Math.sin(angle) * 1.2,
+      });
+      out.meshes.push(stone.mesh);
+    }
+
+    for (const rotation of [0.6, -0.6]) {
+      const log = new THREE.Mesh(
+        sharedGeometry("box", () => new THREE.BoxGeometry(1, 1, 1)),
+        this.colorMaterial(0x5a3d2b)
+      );
+      log.scale.set(1.5, 0.18, 0.18);
+      log.rotation.y = rotation;
+      log.position.set(chunkX * tileSize, 0.1, chunkZ * tileSize);
+      log.castShadow = true;
+      scene.add(log);
+      out.meshes.push(log);
+    }
+
+    const flame = new THREE.Mesh(
+      sharedGeometry("cone8", () => new THREE.ConeGeometry(1, 1, 8)),
+      flameMaterial
+    );
+    flame.scale.set(0.45, 0.9, 0.45);
+    flame.position.set(chunkX * tileSize, 0.55, chunkZ * tileSize);
+    scene.add(flame);
+    out.meshes.push(flame);
+  }
+
+  populateVillage(scene, tileSize, chunkX, chunkZ, rng, out, wallColor) {
+    const spots = [
+      [-5.5, -4],
+      [5, -5],
+      [-4.5, 5],
+      [5.5, 4.5],
+    ];
+    const houseCount = 2 + rng.int(0, 1);
+    for (let i = 0; i < houseCount; i++) {
+      const [baseX, baseZ] = spots[i];
+      const offsetX = baseX + rng.float(-1, 1);
+      const offsetZ = baseZ + rng.float(-1, 1);
+      const width = rng.float(3.5, 5);
+      const depth = rng.float(3.5, 5);
+      const height = rng.float(2.4, 3.4);
+
+      const house = this.createBoxStructure(scene, tileSize, chunkX, chunkZ, {
+        width,
+        height,
+        depth,
+        color: wallColor ?? 0xb08968,
+        offsetX,
+        offsetZ,
+      });
+      out.meshes.push(house.mesh);
+      out.solidBoxes.push(house.solidBox);
+
+      const roofRadius = Math.max(width, depth) * 0.72;
+      const roof = new THREE.Mesh(
+        sharedGeometry("cone4", () => new THREE.ConeGeometry(1, 1, 4)),
+        this.colorMaterial(0x6e4a34)
+      );
+      roof.scale.set(roofRadius, 1.6, roofRadius);
+      roof.rotation.y = Math.PI / 4;
+      roof.position.set(
+        chunkX * tileSize + offsetX,
+        height + 0.8,
+        chunkZ * tileSize + offsetZ
+      );
+      roof.castShadow = true;
+      scene.add(roof);
+      out.meshes.push(roof);
+    }
+
+    const centerX = chunkX * tileSize;
+    const centerZ = chunkZ * tileSize;
+    const pole = new THREE.Mesh(
+      sharedGeometry("cylinder8", () => new THREE.CylinderGeometry(1, 1, 1, 8)),
+      this.colorMaterial(0x2b2b2b)
+    );
+    pole.scale.set(0.07, 3, 0.07);
+    pole.position.set(centerX, 1.5, centerZ);
+    pole.castShadow = true;
+    scene.add(pole);
+    out.meshes.push(pole);
+
+    const bulb = new THREE.Mesh(
+      sharedGeometry("sphere8", () => new THREE.SphereGeometry(1, 8, 8)),
+      lampBulbMaterial
+    );
+    bulb.scale.setScalar(0.25);
+    bulb.position.set(centerX, 3.1, centerZ);
+    scene.add(bulb);
+    out.meshes.push(bulb);
+
+    out.solidBoxes.push(
+      new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(centerX, 1.5, centerZ),
+        new THREE.Vector3(0.4, 3, 0.4)
+      )
+    );
   }
 
   createTile() {

@@ -10,12 +10,32 @@ const lampBulbMaterial = new THREE.MeshBasicMaterial({ color: 0xfff0b0 });
 
 const WINDOW_LIT_CHANCE = 0.35;
 
+function mod5(value) {
+  return ((value % 5) + 5) % 5;
+}
+
 export class CityBiome extends Biome {
   groundColor = 0x556b2f;
 
+  _roadFlags(chunkX, chunkZ, seed) {
+    const phaseX = seed % 5;
+    const phaseZ = Math.floor(seed / 7) % 5;
+    return {
+      vertical: mod5(chunkX + phaseX) === 0,
+      horizontal: mod5(chunkZ + phaseZ) === 0,
+      alongVertical: mod5(chunkZ + phaseZ),
+      alongHorizontal: mod5(chunkX + phaseX),
+    };
+  }
+
   createTile(scene, tileSize, chunkX, chunkZ, seed) {
-    if (chunkX % 5 === 0 || chunkZ % 5 === 0) {
+    const road = this._roadFlags(chunkX, chunkZ, seed);
+    if (road.vertical || road.horizontal) {
       return this.createRoadTile(scene, tileSize, chunkX, chunkZ, seed);
+    }
+
+    if (chunkX === 0 && chunkZ === 0) {
+      return this.createEmptyTile(scene, tileSize, chunkX, chunkZ);
     }
 
     const rng = this.createRng(chunkX, chunkZ, seed);
@@ -49,8 +69,8 @@ export class CityBiome extends Biome {
 
     const centerX = chunkX * tileSize;
     const centerZ = chunkZ * tileSize;
-    const vertical = chunkX % 5 === 0;
-    const horizontal = chunkZ % 5 === 0;
+    const { vertical, horizontal, alongVertical, alongHorizontal } =
+      this._roadFlags(chunkX, chunkZ, seed);
 
     if (vertical !== horizontal) {
       for (let i = 0; i < 4; i++) {
@@ -85,8 +105,7 @@ export class CityBiome extends Biome {
         }
       }
     } else {
-      const along = vertical ? chunkZ : chunkX;
-      const positionInSegment = ((along % 5) + 5) % 5;
+      const positionInSegment = vertical ? alongVertical : alongHorizontal;
       if (positionInSegment === 2 || positionInSegment === 3) {
         for (const side of [-1, 1]) {
           if (rng.next() > LAMP_CHANCE) continue;

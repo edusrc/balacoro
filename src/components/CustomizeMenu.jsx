@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import MenuStage, { MENU_CSS } from "./MenuStage.jsx";
+import CoinIcon from "./CoinIcon.jsx";
 import {
   loadCustomization,
   saveCustomization,
@@ -10,6 +11,12 @@ import {
   GLASSES_OPTIONS,
   EAR_OPTIONS,
 } from "../core/cosmetics.js";
+import {
+  getCoins,
+  spendCoins,
+  isOwned,
+  unlockCosmetic,
+} from "../core/wallet.js";
 
 const TABS = [
   { id: "color", label: "COLOR" },
@@ -18,15 +25,74 @@ const TABS = [
   { id: "ears", label: "EARS" },
 ];
 
+const COSMETIC_TABS = {
+  hat: HAT_OPTIONS,
+  glasses: GLASSES_OPTIONS,
+  ears: EAR_OPTIONS,
+};
+
 export default function CustomizeMenu({ onBack }) {
   const [customization, setCustomization] = useState(loadCustomization);
   const [tab, setTab] = useState("color");
+  const [coins, setCoins] = useState(getCoins);
 
   const update = (patch) => {
     const next = { ...customization, ...patch };
     setCustomization(next);
     saveCustomization(next);
   };
+
+  const selectCosmetic = (kind, option) => {
+    if (isOwned(kind, option.id)) {
+      update({ [kind]: option.id });
+      return;
+    }
+    if (spendCoins(option.price)) {
+      unlockCosmetic(kind, option.id);
+      setCoins(getCoins());
+      update({ [kind]: option.id });
+    }
+  };
+
+  const renderCosmeticList = (kind) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+      {COSMETIC_TABS[kind].map((option) => {
+        const owned = isOwned(kind, option.id);
+        const affordable = coins >= option.price;
+        return (
+          <button
+            key={option.id}
+            className={`menu-button${
+              customization[kind] === option.id ? " selected" : ""
+            }`}
+            style={{
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              opacity: owned || affordable ? 1 : 0.45,
+            }}
+            onClick={() => selectCosmetic(kind, option)}
+          >
+            <span>{option.label}</span>
+            {!owned && (
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontSize: "11px",
+                  color: "#ffd23e",
+                }}
+              >
+                🔒 <CoinIcon size={12} /> {option.price}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div
@@ -61,20 +127,35 @@ export default function CustomizeMenu({ onBack }) {
           pointerEvents: "none",
         }}
       >
-        <h1
-          style={{
-            fontSize: "min(4vw, 44px)",
-            letterSpacing: "6px",
-            color: "#ffee00",
-            textShadow:
-              "0 0 24px rgba(255, 238, 0, 0.5), 4px 4px 0 #7a5c00",
-            margin: 0,
-          }}
-        >
-          CUSTOMIZE
-        </h1>
+        <div>
+          <h1
+            style={{
+              fontSize: "min(4vw, 44px)",
+              letterSpacing: "6px",
+              color: "#ffee00",
+              textShadow:
+                "0 0 24px rgba(255, 238, 0, 0.5), 4px 4px 0 #7a5c00",
+              margin: 0,
+            }}
+          >
+            CUSTOMIZE
+          </h1>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginTop: "14px",
+              fontSize: "14px",
+              color: "#ffd23e",
+              textShadow: "2px 2px #000",
+            }}
+          >
+            <CoinIcon size={15} /> {coins}
+          </div>
+        </div>
 
-        <div style={{ pointerEvents: "auto", maxWidth: "320px" }}>
+        <div style={{ pointerEvents: "auto", maxWidth: "340px" }}>
           <div style={{ display: "flex", gap: "18px", marginBottom: "24px" }}>
             {TABS.map((t) => (
               <button
@@ -160,56 +241,9 @@ export default function CustomizeMenu({ onBack }) {
             </div>
           )}
 
-          {tab === "hat" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {HAT_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  className={`menu-button${
-                    customization.hat === option.id ? " selected" : ""
-                  }`}
-                  style={{ fontSize: "14px" }}
-                  onClick={() => update({ hat: option.id })}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {tab === "glasses" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {GLASSES_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  className={`menu-button${
-                    customization.glasses === option.id ? " selected" : ""
-                  }`}
-                  style={{ fontSize: "14px" }}
-                  onClick={() => update({ glasses: option.id })}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {tab === "ears" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {EAR_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  className={`menu-button${
-                    customization.ears === option.id ? " selected" : ""
-                  }`}
-                  style={{ fontSize: "14px" }}
-                  onClick={() => update({ ears: option.id })}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
+          {tab === "hat" && renderCosmeticList("hat")}
+          {tab === "glasses" && renderCosmeticList("glasses")}
+          {tab === "ears" && renderCosmeticList("ears")}
 
           <button
             className="menu-button"

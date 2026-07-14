@@ -4,40 +4,28 @@ import {
   BOSS_DAMAGE_MULTIPLIER,
   BOSS_XP_MULTIPLIER,
 } from "../constants.js";
+import {
+  generateGenome,
+  buildMonsterBody,
+  getBodyMaterial,
+  eyeDayMaterial,
+  eyeNightMaterial,
+} from "./MonsterGenome.js";
 
 const DEATH_DURATION = 0.4;
 const FLASH_DURATION = 0.08;
 const DEATH_PARTICLE_COUNT = 8;
 
-const bodyGeometry = new THREE.BoxGeometry(1, 1, 1);
 const particleGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.15);
-const eyeGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.06);
 const freezeGeometry = new THREE.SphereGeometry(1, 16, 16);
 
 const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-const eyeDayMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
-const eyeNightMaterial = new THREE.MeshBasicMaterial({ color: 0xff2222 });
 const freezeMaterial = new THREE.MeshBasicMaterial({
   color: 0x00ffff,
   transparent: true,
   opacity: 0.4,
   depthWrite: false,
 });
-
-const bodyMaterialCache = new Map();
-function getBodyMaterial(difficulty) {
-  const key = Math.min(difficulty, 10);
-  let material = bodyMaterialCache.get(key);
-  if (!material) {
-    const hue = 0.66 * (1 - Math.min(key / 5, 1));
-    const lightness = key <= 5 ? 0.5 : 0.5 - ((key - 5) / 5) * 0.28;
-    material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(hue, 1, lightness),
-    });
-    bodyMaterialCache.set(key, material);
-  }
-  return material;
-}
 
 export class Enemy extends THREE.Object3D {
   constructor(
@@ -46,39 +34,49 @@ export class Enemy extends THREE.Object3D {
     speed = 4,
     health = 1,
     difficulty = 0,
-    isBoss = false
+    isBoss = false,
+    forcedArchetype = undefined
   ) {
     super();
     this.target = target;
-    this.speed = speed;
-    this.maxHealth = health;
-    this.health = health;
+    this.genome = generateGenome(isBoss, forcedArchetype);
+    this.speed = speed * this.genome.speedMult;
+    this.maxHealth = Math.max(1, Math.round(health * this.genome.healthMult));
+    this.health = this.maxHealth;
     this.isBoss = isBoss;
-    this.size = isBoss ? BOSS_SIZE_MULTIPLIER : 1;
+    this.size = (isBoss ? BOSS_SIZE_MULTIPLIER : 1) * this.genome.sizeMult;
     this.hitboxRadius = this.size / 2;
-    this.damageMultiplier = isBoss ? BOSS_DAMAGE_MULTIPLIER : 1;
+    this.damageMultiplier =
+      (isBoss ? BOSS_DAMAGE_MULTIPLIER : 1) * this.genome.damageMult;
     this.playerContactTime = 0;
     this.difficulty = difficulty;
-    this.xpReward = isBoss
+    const baseReward = isBoss
       ? (difficulty || 1) * BOSS_XP_MULTIPLIER
       : difficulty || 1;
+    const rewardScale =
+      (this.genome.healthMult + this.genome.damageMult) / 2;
+    this.xpReward = Math.max(1, Math.round(baseReward * rewardScale));
+    this.coinReward = this.xpReward;
 
     this.baseMaterial = getBodyMaterial(this.difficulty);
-    this.mesh = new THREE.Mesh(bodyGeometry, this.baseMaterial);
-    this.mesh.scale.setScalar(this.size);
-    this.mesh.position.y = this.size / 2 - 0.5;
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
+    const body = buildMonsterBody(this.genome, this.baseMaterial);
+    this.mesh = body.group;
+    this.flashEntries = body.flashEntries;
+    this.eyes = body.eyes;
+    this.animatedParts = body.animatedParts;
+    this.coreGeometry = body.coreGeometry;
+
+    this.bodyScale = new THREE.Vector3(
+      this.genome.stretch.x,
+      this.genome.stretch.y,
+      this.genome.stretch.z
+    ).multiplyScalar(this.size);
+    this.mesh.scale.copy(this.bodyScale);
+    this.mesh.position.y = this.bodyScale.y * 0.42;
     this.add(this.mesh);
 
-    this.eyes = [];
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(eyeGeometry, eyeDayMaterial);
-      eye.position.set(side * 0.2, 0.18, 0.51);
-      this.mesh.add(eye);
-      this.eyes.push(eye);
-    }
     this.eyesGlowing = false;
+    this.animTime = Math.random() * Math.PI * 2;
 
     this.damageTimer = 0;
     this.flashTime = 0;
@@ -160,11 +158,7 @@ export class Enemy extends THREE.Object3D {
     if (this.flashTime > 0) {
       this.flashTime -= delta;
       if (this.flashTime <= 0) {
-        this.mesh.material = this.baseMaterial;
-        const eyeMaterial = this.eyesGlowing ? eyeNightMaterial : eyeDayMaterial;
-        for (const eye of this.eyes) {
-          eye.material = eyeMaterial;
-        }
+        this._restoreMaterials();
       }
     }
 
@@ -178,6 +172,20 @@ export class Enemy extends THREE.Object3D {
         }
       }
       return;
+    }
+
+    this.animTime += delta;
+    const animSpeed = 3 + this.genome.speedMult * 4;
+    for (const part of this.animatedParts) {
+      const swing = Math.sin(this.animTime * animSpeed + part.phase);
+      if (part.kind === "leg") {
+        part.mesh.rotation.x = swing * 0.6;
+      } else if (part.kind === "tail") {
+        part.mesh.position.x = swing * part.amplitude;
+        part.mesh.rotation.y = swing * 0.35;
+      } else if (part.kind === "antenna") {
+        part.mesh.rotation.z = part.baseRotZ + swing * 0.18;
+      }
     }
 
     const direction = new THREE.Vector3();
@@ -289,7 +297,7 @@ export class Enemy extends THREE.Object3D {
   _updateDeath(delta) {
     this.deathTimer -= delta;
     const t = Math.max(this.deathTimer / DEATH_DURATION, 0);
-    this.mesh.scale.setScalar(this.size * t);
+    this.mesh.scale.copy(this.bodyScale).multiplyScalar(t);
 
     for (const particle of this.deathParticles) {
       particle.userData.velocity.y -= 12 * delta;
@@ -330,7 +338,7 @@ export class Enemy extends THREE.Object3D {
 
     this.freezeEffect = new THREE.Mesh(freezeGeometry, freezeMaterial);
     this.freezeEffect.scale.setScalar(0.6 * this.size);
-    this.freezeEffect.position.y = this.size / 2 - 0.5;
+    this.freezeEffect.position.y = this.bodyScale.y * 0.42;
     this.add(this.freezeEffect);
   }
 
@@ -370,13 +378,25 @@ export class Enemy extends THREE.Object3D {
     }
   }
 
+  _restoreMaterials() {
+    for (const entry of this.flashEntries) {
+      entry.mesh.material = entry.material;
+    }
+    const eyeMaterial = this.eyesGlowing ? eyeNightMaterial : eyeDayMaterial;
+    for (const eye of this.eyes) {
+      eye.material = eyeMaterial;
+    }
+  }
+
   hit(damage = 1) {
     if (this.isDying) return;
 
     this.health -= damage;
     this.updateHealthBar();
 
-    this.mesh.material = flashMaterial;
+    for (const entry of this.flashEntries) {
+      entry.mesh.material = flashMaterial;
+    }
     for (const eye of this.eyes) {
       eye.material = flashMaterial;
     }
@@ -391,11 +411,7 @@ export class Enemy extends THREE.Object3D {
     this.isDying = true;
     this.deathTimer = DEATH_DURATION;
     this.flashTime = 0;
-    this.mesh.material = this.baseMaterial;
-    const eyeMaterial = this.eyesGlowing ? eyeNightMaterial : eyeDayMaterial;
-    for (const eye of this.eyes) {
-      eye.material = eyeMaterial;
-    }
+    this._restoreMaterials();
 
     if (this.healthBarSprite) {
       this.healthBarSprite.visible = false;
@@ -411,9 +427,13 @@ export class Enemy extends THREE.Object3D {
     if (this.target?.gainXP) {
       this.target.gainXP(this.xpReward);
     }
+    if (this.parent?.addCoins) {
+      this.parent.addCoins(this.coinReward);
+    }
   }
 
   dispose() {
+    this.coreGeometry.dispose();
     if (this.healthTexture) {
       this.healthTexture.dispose();
     }

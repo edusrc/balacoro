@@ -61,18 +61,20 @@ export class Game {
   }
 
   initLights() {
+    this.sunHorizonColor = new THREE.Color(0xff8c42);
+    this.sunNoonColor = new THREE.Color(0xfff6e8);
     this.sunLight = new THREE.DirectionalLight(0xffffff, 1);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(2048, 2048);
     this.sunLight.shadow.bias = -0.0001;
 
     const shadowCamera = this.sunLight.shadow.camera;
-    shadowCamera.left = -100;
-    shadowCamera.right = 100;
-    shadowCamera.top = 100;
-    shadowCamera.bottom = -100;
+    shadowCamera.left = -60;
+    shadowCamera.right = 60;
+    shadowCamera.top = 60;
+    shadowCamera.bottom = -60;
     shadowCamera.near = 1;
-    shadowCamera.far = 1000;
+    shadowCamera.far = 500;
 
     this.sunLight.target = new THREE.Object3D();
     this.scene.add(this.sunLight);
@@ -106,7 +108,7 @@ export class Game {
   initPostProcessing() {
     this.composer = new EffectComposer(this.renderer);
     this.renderPixelatedPass = new RenderPixelatedPass(
-      4,
+      3,
       this.scene,
       this.camera
     );
@@ -184,40 +186,64 @@ export class Game {
   }
 
   updateSunPosition(elapsedSeconds) {
+    const dayRatio = DAY_DURATION / TOTAL_CYCLE;
     const cycleProgress = (elapsedSeconds % TOTAL_CYCLE) / TOTAL_CYCLE;
+    const isDay = cycleProgress < dayRatio;
+    const dayProgress = isDay ? cycleProgress / dayRatio : 0;
+    const smoothProgress = isDay ? Math.sin(dayProgress * Math.PI) : 0;
 
-    const smoothProgress =
-      cycleProgress < DAY_DURATION / TOTAL_CYCLE
-        ? Math.sin((cycleProgress / (DAY_DURATION / TOTAL_CYCLE)) * Math.PI)
-        : 0;
-
-    const elevation = smoothProgress * 90;
+    const elevation = smoothProgress * 75;
     this.isNight = smoothProgress === 0;
 
-    const azimuthDegrees = 180;
+    let hours;
+    if (isDay) {
+      hours = 6 + dayProgress * 12;
+    } else {
+      const nightProgress = (cycleProgress - dayRatio) / (1 - dayRatio);
+      hours = (18 + nightProgress * 12) % 24;
+    }
+    const hh = Math.floor(hours);
+    const mm = Math.floor((hours - hh) * 60);
+    this.clockText = `${String(hh).padStart(2, "0")}:${String(mm).padStart(
+      2,
+      "0"
+    )}`;
+
+    const azimuthDegrees = 90 + dayProgress * 180;
     const phi = THREE.MathUtils.degToRad(90 - elevation);
     const theta = THREE.MathUtils.degToRad(azimuthDegrees);
 
     this.sun.setFromSphericalCoords(1, phi, theta);
     this.sky.material.uniforms["sunPosition"].value.copy(this.sun);
 
-    const sunPosition = this.sun.clone().multiplyScalar(5000);
-    this.sunLight.position.copy(sunPosition);
-    this.sunLight.target.position.set(0, 0, 0);
+    const playerPosition = this.scene?.player?.position;
+    const anchor = playerPosition ?? new THREE.Vector3();
+    this.sunLight.position
+      .copy(anchor)
+      .addScaledVector(this.sun, 150);
+    this.sunLight.target.position.copy(anchor);
     this.sunLight.target.updateMatrixWorld();
     this.sunLight.updateMatrixWorld(true);
 
-    this.sunSphere.position.copy(sunPosition);
+    this.sunSphere.position.copy(anchor).addScaledVector(this.sun, 5000);
 
     this.sunLight.intensity = 1.3 + 3 * smoothProgress;
+    this.sunLight.color.lerpColors(
+      this.sunHorizonColor,
+      this.sunNoonColor,
+      Math.min(smoothProgress * 1.8, 1)
+    );
     this.sunLight.visible = smoothProgress > 0.01;
     this.ambientLight.intensity = 0.05 + 0.15 * smoothProgress;
     this.renderer.toneMappingExposure = 0.2 + smoothProgress * 1.3;
 
     if (this.icon) {
+      const iconStyle = this.isNight
+        ? "filter: sepia(1) saturate(2.5) hue-rotate(175deg) brightness(1.25) drop-shadow(0 0 8px rgba(140, 180, 255, 0.8));"
+        : "filter: sepia(1) saturate(6) hue-rotate(-15deg) brightness(1.15) drop-shadow(0 0 8px rgba(255, 200, 50, 0.8));";
       this.icon.innerHTML = `<img src="${
-        this.isNight ? "/assets/imgs/moon.png" : "/assets/imgs/sun.png"
-      }" width="32" height="32" />`;
+        this.isNight ? "./assets/imgs/moon.png" : "./assets/imgs/sun.png"
+      }" width="32" height="32" style="${iconStyle}" />`;
     }
   }
 
@@ -252,7 +278,12 @@ export class Game {
 
     this.updateSunPosition(this.totalElapsedTime);
     this.scene.isNight = this.isNight;
-    this.minimap.update(this.scene.player, this.scene.enemies, this.scene.items);
+    this.minimap.update(
+      this.scene.player,
+      this.scene.enemies,
+      this.scene.items,
+      this.scene.tileManager
+    );
     if (ENABLE_MINI_VIEW && this.isMiniViewVisible) {
       this.miniRenderer.render(this.scene, this.miniCamera);
     }

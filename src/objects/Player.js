@@ -73,6 +73,7 @@ export class Player extends THREE.Object3D {
     });
 
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = 0.35;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.add(mesh);
@@ -91,6 +92,7 @@ export class Player extends THREE.Object3D {
       createEars(customization.ears),
     ]) {
       if (!accessory) continue;
+      accessory.position.y = 0.35;
       accessory.traverse((child) => {
         child.castShadow = true;
       });
@@ -449,6 +451,7 @@ export class Player extends THREE.Object3D {
     );
 
     ghost.position.copy(this.position);
+    ghost.position.y += 0.35;
     ghost.quaternion.copy(this.quaternion);
     ghost.scale.copy(this.scale);
     ghost.castShadow = false;
@@ -492,6 +495,7 @@ export class Player extends THREE.Object3D {
 
     const outline = new THREE.Mesh(mesh.geometry.clone(), outlineMaterial);
     outline.name = "forceField";
+    outline.position.y = 0.35;
     outline.scale.multiplyScalar(1.3);
     this.add(outline);
   }

@@ -4,6 +4,41 @@ import { Biome } from "./Biome.js";
 export class DesertBiome extends Biome {
   groundColor = 0xe0c280;
 
+  populatePOI(scene, tileSize, chunkX, chunkZ, rng, out) {
+    const waterRadius = rng.float(3.8, 5.2);
+    out.meshes.push(
+      this.createWaterDisc(scene, tileSize, chunkX, chunkZ, waterRadius)
+    );
+
+    const palmCount = 2 + rng.int(0, 1);
+    for (let i = 0; i < palmCount; i++) {
+      const angle = rng.float(0, Math.PI * 2);
+      const distance = waterRadius + rng.float(1, 2);
+      const palm = this.createTree(scene, tileSize, chunkX, chunkZ, {
+        trunkColor: 0x9a7648,
+        leavesColor: 0x2e9e46,
+        trunkHeight: rng.float(3, 4.2),
+        leavesRadius: rng.float(1.1, 1.5),
+        offsetX: Math.cos(angle) * distance,
+        offsetZ: Math.sin(angle) * distance,
+      });
+      out.meshes.push(palm.mesh);
+      out.solidBoxes.push(palm.solidBox);
+    }
+
+    for (let i = 0; i < 3; i++) {
+      const angle = rng.float(0, Math.PI * 2);
+      const distance = waterRadius + rng.float(0.5, 1.5);
+      const bush = this.createGroundClutter(scene, tileSize, chunkX, chunkZ, {
+        offsetX: Math.cos(angle) * distance,
+        offsetZ: Math.sin(angle) * distance,
+        radius: rng.float(0.3, 0.5),
+        color: 0x3f9e4d,
+      });
+      out.meshes.push(bush.mesh);
+    }
+  }
+
   populate(scene, tileSize, chunkX, chunkZ, seed, out, density = 1) {
     const rng = this.createRng(chunkX, chunkZ, seed);
 
