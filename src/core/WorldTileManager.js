@@ -4,14 +4,20 @@ import { CityBiome } from "./biomes/CityBiome.js";
 import { ForestBiome } from "./biomes/ForestBiome.js";
 import { DesertBiome } from "./biomes/DesertBiome.js";
 import { SnowBiome } from "./biomes/SnowBiome.js";
-
-const CITY_SIZE_IN_CHUNKS = 6;
-const CITY_REGION_SIZE = 24;
-const CITY_CHANCE = 0.4;
-const BIOME_NOISE_FREQUENCY = 0.06;
-const SNOW_MAX = 0.42;
-const FOREST_MAX = 0.58;
-const TRANSITION_BAND = 0.08;
+import {
+  CITY_SIZE_IN_CHUNKS,
+  CITY_REGION_SIZE,
+  CITY_CHANCE,
+  BIOME_NOISE_FREQUENCY,
+  SNOW_MAX,
+  FOREST_MAX,
+  BIOME_TRANSITION_BAND,
+  VILLAGE_CHANCE,
+  POI_CHANCE,
+  CLUMP_NOISE_FREQUENCY,
+  CLUMP_DENSITY_MIN,
+  CLUMP_DENSITY_RANGE,
+} from "../constants.js";
 
 export class WorldTileManager {
   constructor(scene, tileSize = 20, seed = Math.floor(Math.random() * 1000000)) {
@@ -113,12 +119,12 @@ export class WorldTileManager {
       distance = value - FOREST_MAX;
     }
 
-    if (distance >= TRANSITION_BAND) {
+    if (distance >= BIOME_TRANSITION_BAND) {
       return { primary, secondary: null, blend: 0 };
     }
 
     const blend =
-      Math.round((0.5 * (1 - distance / TRANSITION_BAND)) * 10) / 10;
+      Math.round((0.5 * (1 - distance / BIOME_TRANSITION_BAND)) * 10) / 10;
     if (blend === 0) {
       return { primary, secondary: null, blend: 0 };
     }
@@ -174,7 +180,7 @@ export class WorldTileManager {
     if (!sample.secondary) {
       const poiRng = primary.createRng(chunkX, chunkZ, this.seed ^ 0x90d1);
       const poiRoll = poiRng.next();
-      if (poiRoll < 0.006) {
+      if (poiRoll < VILLAGE_CHANCE) {
         primary.populateVillage(
           this.scene,
           this.tileSize,
@@ -185,7 +191,7 @@ export class WorldTileManager {
         );
         return out;
       }
-      if (poiRoll < 0.02) {
+      if (poiRoll < POI_CHANCE) {
         primary.populatePOI(
           this.scene,
           this.tileSize,
@@ -199,11 +205,11 @@ export class WorldTileManager {
     }
 
     const clump = fractalNoise2D(
-      chunkX * 0.13,
-      chunkZ * 0.13,
+      chunkX * CLUMP_NOISE_FREQUENCY,
+      chunkZ * CLUMP_NOISE_FREQUENCY,
       this.seed ^ 0x7e55
     );
-    const clumpFactor = 0.15 + clump * 1.7;
+    const clumpFactor = CLUMP_DENSITY_MIN + clump * CLUMP_DENSITY_RANGE;
 
     primary.populate(
       this.scene,

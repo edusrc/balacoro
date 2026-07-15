@@ -5,6 +5,8 @@ const BIOME_COLORS = {
   snow: "#cfe6f2",
 };
 
+import { getDifficultyColorStyle } from "../objects/MonsterGenome.js";
+
 export class Minimap {
   constructor(container, range = 60) {
     this.container = container;
@@ -57,6 +59,7 @@ export class Minimap {
     }
 
     for (const enemy of enemies) {
+      if (enemy.isDormant) continue;
       if (enemy.isBoss) {
         this.drawBossSkull(
           enemy.position,
@@ -74,7 +77,9 @@ export class Minimap {
           centerY,
           scale,
           maximumRadius,
-          "#ff3333"
+          enemy.isElite
+            ? `hsl(${(performance.now() * 0.2) % 360}, 100%, 60%)`
+            : getDifficultyColorStyle(enemy.difficulty)
         );
       }
     }

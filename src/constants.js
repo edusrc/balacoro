@@ -13,7 +13,7 @@ export const ENEMY_DAMAGE_GROWTH = 1;
 export const PLAYER_RADIUS = 0.5;
 export const ENEMY_RADIUS = 0.5;
 
-export const DIFFICULTY_INCREASE_INTERVAL_SECONDS = 180;
+export const DIFFICULTY_INCREASE_INTERVAL_SECONDS = 240;
 export const INITIAL_DIFFICULTY = 0;
 
 export const BOSS_SIZE_MULTIPLIER = 4;
@@ -149,3 +149,61 @@ export const PROJECTILE_COLOR = 0x00ff00;
 export const DAY_DURATION = 360;
 export const NIGHT_DURATION = 180;
 export const ENABLE_MINI_VIEW = true;
+
+export const ELITE_CHANCE = 0.005;
+export const ELITE_HEALTH_MULTIPLIER = 5;
+export const ELITE_DAMAGE_MULTIPLIER = 2;
+export const ELITE_SIZE_MULTIPLIER = 1.45;
+export const ELITE_SPEED_MULTIPLIER = 1.15;
+export const ELITE_XP_MULTIPLIER = 3;
+export const ELITE_COIN_MULTIPLIER = 2;
+
+export const LEVELS_PER_ENEMY_POWER = 4;
+export const ENEMY_BIOME_BIAS_CHANCE = 0.4;
+export const ENEMY_SOLID_CHECK_INTERVAL = 1.5;
+export const ENEMY_DEATH_DURATION = 0.4;
+export const ENEMY_FLASH_DURATION = 0.08;
+export const ENEMY_DEATH_PARTICLE_COUNT = 8;
+export const ENEMY_STUCK_THRESHOLD = 0.35;
+export const ENEMY_RESTUCK_THRESHOLD = 0.05;
+export const ENEMY_DETOUR_MAX_TIME = 3;
+
+export const CITY_SIZE_IN_CHUNKS = 6;
+export const CITY_REGION_SIZE = 24;
+export const CITY_CHANCE = 0.4;
+export const BIOME_NOISE_FREQUENCY = 0.06;
+export const SNOW_MAX = 0.42;
+export const FOREST_MAX = 0.58;
+export const BIOME_TRANSITION_BAND = 0.08;
+export const VILLAGE_CHANCE = 0.006;
+export const POI_CHANCE = 0.02;
+export const CLUMP_NOISE_FREQUENCY = 0.13;
+export const CLUMP_DENSITY_MIN = 0.15;
+export const CLUMP_DENSITY_RANGE = 1.7;
+export const LAMP_CHANCE = 0.7;
+export const WINDOW_LIT_CHANCE = 0.35;
+
+export const BOSS_SPECIAL_COOLDOWN = { min: 5, max: 9 };
+export const BOSS_SPECIAL_RANGE = 40;
+export const BOSS_TELEGRAPH_TIME = 0.8;
+export const BOSS_CHARGE_TIME = 0.7;
+export const BOSS_CHARGE_SPEED_MULTIPLIER = 5;
+export const BOSS_SUMMON_COUNT = 3;
+
+export const MIMIC_SPAWN_INTERVAL = { min: 40, max: 80 };
+export const MIMIC_WAKE_DISTANCE = 6;
+export const MIMIC_HEALTH_MULTIPLIER = 2;
+export const MIMIC_COIN_MULTIPLIER = 5;
+
+export const FULL_MOON_NIGHT_INTERVAL = 3;
+export const FULL_MOON_SPAWN_MULTIPLIER = 2;
+export const FULL_MOON_COIN_MULTIPLIER = 2;
+
+export const DEFAULT_FOG_DENSITY = 0.01;
+export const MIST_FOG_DENSITY = 0.05;
+export const MIST_CHECK_INTERVAL = { min: 60, max: 120 };
+export const MIST_CHANCE = 0.1;
+export const MIST_DURATION = { min: 30, max: 60 };
+export const RAIN_CHECK_INTERVAL = { min: 45, max: 90 };
+export const RAIN_CHANCE = 0.4;
+export const RAIN_DURATION = { min: 25, max: 50 };

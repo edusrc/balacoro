@@ -3,6 +3,24 @@ import {
   BOSS_SIZE_MULTIPLIER,
   BOSS_DAMAGE_MULTIPLIER,
   BOSS_XP_MULTIPLIER,
+  ELITE_CHANCE,
+  ELITE_HEALTH_MULTIPLIER,
+  ELITE_DAMAGE_MULTIPLIER,
+  ELITE_SIZE_MULTIPLIER,
+  ELITE_SPEED_MULTIPLIER,
+  ELITE_XP_MULTIPLIER,
+  ELITE_COIN_MULTIPLIER,
+  ENEMY_DEATH_DURATION,
+  ENEMY_FLASH_DURATION,
+  ENEMY_DEATH_PARTICLE_COUNT,
+  ENEMY_STUCK_THRESHOLD,
+  ENEMY_RESTUCK_THRESHOLD,
+  ENEMY_DETOUR_MAX_TIME,
+  BOSS_SPECIAL_COOLDOWN,
+  BOSS_SPECIAL_RANGE,
+  BOSS_TELEGRAPH_TIME,
+  BOSS_CHARGE_TIME,
+  BOSS_CHARGE_SPEED_MULTIPLIER,
 } from "../constants.js";
 import {
   generateGenome,
@@ -12,10 +30,6 @@ import {
   eyeNightMaterial,
 } from "./MonsterGenome.js";
 
-const DEATH_DURATION = 0.4;
-const FLASH_DURATION = 0.08;
-const DEATH_PARTICLE_COUNT = 8;
-
 const particleGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.15);
 const freezeGeometry = new THREE.SphereGeometry(1, 16, 16);
 
@@ -24,6 +38,14 @@ const freezeMaterial = new THREE.MeshBasicMaterial({
   color: 0x00ffff,
   transparent: true,
   opacity: 0.4,
+  depthWrite: false,
+});
+const eliteAuraGeometry = new THREE.SphereGeometry(0.72, 12, 10);
+const eliteAuraMaterial = new THREE.MeshBasicMaterial({
+  color: 0xffd23e,
+  transparent: true,
+  opacity: 0.16,
+  side: THREE.BackSide,
   depthWrite: false,
 });
 
@@ -40,14 +62,28 @@ export class Enemy extends THREE.Object3D {
     super();
     this.target = target;
     this.genome = generateGenome(isBoss, forcedArchetype);
-    this.speed = speed * this.genome.speedMult;
-    this.maxHealth = Math.max(1, Math.round(health * this.genome.healthMult));
+    this.isElite = !isBoss && Math.random() < ELITE_CHANCE;
+    this.speed =
+      speed * this.genome.speedMult * (this.isElite ? ELITE_SPEED_MULTIPLIER : 1);
+    this.maxHealth = Math.max(
+      1,
+      Math.round(
+        health *
+          this.genome.healthMult *
+          (this.isElite ? ELITE_HEALTH_MULTIPLIER : 1)
+      )
+    );
     this.health = this.maxHealth;
     this.isBoss = isBoss;
-    this.size = (isBoss ? BOSS_SIZE_MULTIPLIER : 1) * this.genome.sizeMult;
+    this.size =
+      (isBoss ? BOSS_SIZE_MULTIPLIER : 1) *
+      this.genome.sizeMult *
+      (this.isElite ? ELITE_SIZE_MULTIPLIER : 1);
     this.hitboxRadius = this.size / 2;
     this.damageMultiplier =
-      (isBoss ? BOSS_DAMAGE_MULTIPLIER : 1) * this.genome.damageMult;
+      (isBoss ? BOSS_DAMAGE_MULTIPLIER : 1) *
+      this.genome.damageMult *
+      (this.isElite ? ELITE_DAMAGE_MULTIPLIER : 1);
     this.playerContactTime = 0;
     this.difficulty = difficulty;
     const baseReward = isBoss
@@ -55,10 +91,17 @@ export class Enemy extends THREE.Object3D {
       : difficulty || 1;
     const rewardScale =
       (this.genome.healthMult + this.genome.damageMult) / 2;
-    this.xpReward = Math.max(1, Math.round(baseReward * rewardScale));
-    this.coinReward = this.xpReward;
+    this.xpReward =
+      Math.max(1, Math.round(baseReward * rewardScale)) *
+      (this.isElite ? ELITE_XP_MULTIPLIER : 1);
+    this.coinReward = this.isElite
+      ? this.xpReward * ELITE_COIN_MULTIPLIER
+      : this.xpReward;
 
-    this.baseMaterial = getBodyMaterial(this.difficulty);
+    this.baseMaterial = getBodyMaterial(this.difficulty, this.isElite);
+    if (this.isElite) {
+      this.baseMaterial = this.baseMaterial.clone();
+    }
     const body = buildMonsterBody(this.genome, this.baseMaterial);
     this.mesh = body.group;
     this.flashEntries = body.flashEntries;
@@ -75,6 +118,15 @@ export class Enemy extends THREE.Object3D {
     this.mesh.position.y = this.bodyScale.y * 0.42;
     this.add(this.mesh);
 
+    if (this.isElite) {
+      this.eliteAura = new THREE.Mesh(
+        eliteAuraGeometry,
+        eliteAuraMaterial.clone()
+      );
+      this.mesh.add(this.eliteAura);
+      this.eliteHue = Math.random();
+    }
+
     this.eyesGlowing = false;
     this.animTime = Math.random() * Math.PI * 2;
 
@@ -90,6 +142,13 @@ export class Enemy extends THREE.Object3D {
     this.recentDetourTime = 0;
     this.detourSide = Math.random() < 0.5 ? 1 : -1;
     this.detourDirection = new THREE.Vector3();
+
+    this.bossState = "chase";
+    this.bossStateTime = 0;
+    this.bossCooldown =
+      BOSS_SPECIAL_COOLDOWN.min +
+      Math.random() * (BOSS_SPECIAL_COOLDOWN.max - BOSS_SPECIAL_COOLDOWN.min);
+    this.chargeDirection = new THREE.Vector3();
 
     this.position.copy(spawnPosition);
 
@@ -146,13 +205,25 @@ export class Enemy extends THREE.Object3D {
       return;
     }
 
-    const isNight = this.parent?.isNight ?? false;
-    if (isNight !== this.eyesGlowing) {
-      this.eyesGlowing = isNight;
-      const material = isNight ? eyeNightMaterial : eyeDayMaterial;
+    const eyesShouldGlow =
+      (this.parent?.isNight ?? false) || this.parent?.isMist === true;
+    if (eyesShouldGlow !== this.eyesGlowing) {
+      this.eyesGlowing = eyesShouldGlow;
+      const material = eyesShouldGlow ? eyeNightMaterial : eyeDayMaterial;
       for (const eye of this.eyes) {
         eye.material = material;
       }
+    }
+
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = this.parent?.isMist !== true;
+    }
+
+    if (this.isElite) {
+      this.eliteHue = (this.eliteHue + delta * 0.35) % 1;
+      this.baseMaterial.color.setHSL(this.eliteHue, 1, 0.55);
+      this.baseMaterial.emissive.setHSL(this.eliteHue, 1, 0.35);
+      this.eliteAura.material.color.setHSL((this.eliteHue + 0.15) % 1, 1, 0.6);
     }
 
     if (this.flashTime > 0) {
@@ -186,6 +257,10 @@ export class Enemy extends THREE.Object3D {
       } else if (part.kind === "antenna") {
         part.mesh.rotation.z = part.baseRotZ + swing * 0.18;
       }
+    }
+
+    if (this.isBoss && this._updateBossSpecial(delta)) {
+      return;
     }
 
     const direction = new THREE.Vector3();
@@ -283,20 +358,100 @@ export class Enemy extends THREE.Object3D {
     }
 
     this.stuckTime += delta;
-    const stuckThreshold = this.recentDetourTime > 0 ? 0.05 : 0.35;
+    const stuckThreshold =
+      this.recentDetourTime > 0
+        ? ENEMY_RESTUCK_THRESHOLD
+        : ENEMY_STUCK_THRESHOLD;
     if (this.stuckTime > stuckThreshold) {
       this.stuckTime = 0;
       this.detourActive = true;
-      this.detourTimeLeft = 3;
+      this.detourTimeLeft = ENEMY_DETOUR_MAX_TIME;
       this.detourDirection
         .set(-direction.z, 0, direction.x)
         .multiplyScalar(this.detourSide);
     }
   }
 
+  _updateBossSpecial(delta) {
+    if (this.bossState === "chase") {
+      this.bossCooldown -= delta;
+      const distSq = this.position.distanceToSquared(this.target.position);
+      if (
+        this.bossCooldown <= 0 &&
+        distSq < BOSS_SPECIAL_RANGE * BOSS_SPECIAL_RANGE
+      ) {
+        this.bossState = Math.random() < 0.6 ? "telegraph" : "summon";
+        this.bossStateTime = 0;
+      }
+      return false;
+    }
+
+    this.bossStateTime += delta;
+
+    if (this.bossState === "telegraph") {
+      this.lookAt(
+        new THREE.Vector3(
+          this.target.position.x,
+          this.position.y,
+          this.target.position.z
+        )
+      );
+      this.mesh.position.x = Math.sin(this.bossStateTime * 45) * 0.15;
+      if (this.bossStateTime >= BOSS_TELEGRAPH_TIME) {
+        this.mesh.position.x = 0;
+        this.chargeDirection
+          .subVectors(this.target.position, this.position)
+          .setY(0)
+          .normalize();
+        this.bossState = "charge";
+        this.bossStateTime = 0;
+      }
+      return true;
+    }
+
+    if (this.bossState === "charge") {
+      const step = this.speed * BOSS_CHARGE_SPEED_MULTIPLIER * delta;
+      const candidate = this.position
+        .clone()
+        .addScaledVector(this.chargeDirection, step);
+      const blocked = this.parent?.tileManager?.intersectsSolid(
+        this.getCollisionBoxAt(candidate)
+      );
+      if (!blocked) {
+        this.position.copy(candidate);
+      }
+      if (blocked || this.bossStateTime >= BOSS_CHARGE_TIME) {
+        this._endBossSpecial();
+      }
+      return true;
+    }
+
+    if (this.bossState === "summon") {
+      this.mesh.rotation.y += delta * 10;
+      if (this.bossStateTime >= 0.6) {
+        this.mesh.rotation.y = 0;
+        if (this.parent?.spawnMinions) {
+          this.parent.spawnMinions(this);
+        }
+        this._endBossSpecial();
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  _endBossSpecial() {
+    this.bossState = "chase";
+    this.bossStateTime = 0;
+    this.bossCooldown =
+      BOSS_SPECIAL_COOLDOWN.min +
+      Math.random() * (BOSS_SPECIAL_COOLDOWN.max - BOSS_SPECIAL_COOLDOWN.min);
+  }
+
   _updateDeath(delta) {
     this.deathTimer -= delta;
-    const t = Math.max(this.deathTimer / DEATH_DURATION, 0);
+    const t = Math.max(this.deathTimer / ENEMY_DEATH_DURATION, 0);
     this.mesh.scale.copy(this.bodyScale).multiplyScalar(t);
 
     for (const particle of this.deathParticles) {
@@ -314,7 +469,7 @@ export class Enemy extends THREE.Object3D {
   }
 
   _spawnDeathParticles() {
-    for (let i = 0; i < DEATH_PARTICLE_COUNT; i++) {
+    for (let i = 0; i < ENEMY_DEATH_PARTICLE_COUNT; i++) {
       const particle = new THREE.Mesh(particleGeometry, this.baseMaterial);
       particle.scale.setScalar(this.size);
       particle.position.set(0, this.size / 2, 0);
@@ -344,6 +499,7 @@ export class Enemy extends THREE.Object3D {
 
   resolveCollision(otherEnemy) {
     if (this.isDying || otherEnemy.isDying) return;
+    if (this.isDormant || otherEnemy.isDormant) return;
 
     const distance = this.position.distanceTo(otherEnemy.position);
     const minDistance = this.hitboxRadius + otherEnemy.hitboxRadius;
@@ -400,7 +556,7 @@ export class Enemy extends THREE.Object3D {
     for (const eye of this.eyes) {
       eye.material = flashMaterial;
     }
-    this.flashTime = FLASH_DURATION;
+    this.flashTime = ENEMY_FLASH_DURATION;
 
     if (this.health <= 0) {
       this.die();
@@ -409,7 +565,7 @@ export class Enemy extends THREE.Object3D {
 
   die() {
     this.isDying = true;
-    this.deathTimer = DEATH_DURATION;
+    this.deathTimer = ENEMY_DEATH_DURATION;
     this.flashTime = 0;
     this._restoreMaterials();
 
@@ -434,6 +590,10 @@ export class Enemy extends THREE.Object3D {
 
   dispose() {
     this.coreGeometry.dispose();
+    if (this.isElite) {
+      this.baseMaterial.dispose();
+      this.eliteAura.material.dispose();
+    }
     if (this.healthTexture) {
       this.healthTexture.dispose();
     }

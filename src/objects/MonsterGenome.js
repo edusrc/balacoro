@@ -66,16 +66,44 @@ function mulberry32(state) {
   };
 }
 
+function difficultyColor(level) {
+  const color = new THREE.Color();
+  if (level <= 5) {
+    color.setHSL(0.66 * (1 - level / 5), 1, 0.5);
+  } else if (level <= 10) {
+    color.setHSL(0, 1, 0.5 - ((level - 5) / 5) * 0.28);
+  } else {
+    color.setHSL(((level - 10) * 0.09) % 1, 1, 0.3);
+  }
+  return color;
+}
+
+export function getDifficultyColorStyle(difficulty) {
+  const color = difficultyColor(difficulty);
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(hsl.h, hsl.s, Math.max(hsl.l, 0.5));
+  return `#${color.getHexString()}`;
+}
+
 const bodyMaterialCache = new Map();
-export function getBodyMaterial(difficulty) {
-  const key = Math.min(difficulty, 10);
+export function getBodyMaterial(difficulty, elite = false) {
+  const key = `${difficulty}_${elite ? 1 : 0}`;
   let material = bodyMaterialCache.get(key);
   if (!material) {
-    const hue = 0.66 * (1 - Math.min(key / 5, 1));
-    const lightness = key <= 5 ? 0.5 : 0.5 - ((key - 5) / 5) * 0.28;
+    const color = difficultyColor(difficulty);
+    let emissive = new THREE.Color(0x000000);
+    if (elite) {
+      emissive = color.clone().multiplyScalar(0.55);
+    } else if (difficulty > 10) {
+      emissive = color
+        .clone()
+        .multiplyScalar(Math.min(0.15 + (difficulty - 10) * 0.03, 0.7));
+    }
     material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(hue, 1, lightness),
+      color,
       flatShading: true,
+      emissive,
     });
     bodyMaterialCache.set(key, material);
   }

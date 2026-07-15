@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Biome } from "./Biome.js";
+import { LAMP_CHANCE, WINDOW_LIT_CHANCE } from "../../constants.js";
 
 const windowGeometry = new THREE.PlaneGeometry(0.7, 0.9);
 const stripeGeometry = new THREE.PlaneGeometry(0.35, 1.8);
@@ -7,8 +8,6 @@ const windowLitMaterial = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
 const windowDarkMaterial = new THREE.MeshStandardMaterial({ color: 0x18202c });
 const stripeMaterial = new THREE.MeshBasicMaterial({ color: 0xdddddd });
 const lampBulbMaterial = new THREE.MeshBasicMaterial({ color: 0xfff0b0 });
-
-const WINDOW_LIT_CHANCE = 0.35;
 
 function mod5(value) {
   return ((value % 5) + 5) % 5;
@@ -90,7 +89,6 @@ export class CityBiome extends Biome {
     const solidBoxes = [];
 
     const edge = tileSize / 2 - 0.6;
-    const LAMP_CHANCE = 0.7;
     if (vertical && horizontal) {
       for (const sideX of [-1, 1]) {
         for (const sideZ of [-1, 1]) {

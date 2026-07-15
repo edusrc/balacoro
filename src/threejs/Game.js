@@ -7,7 +7,20 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { setFloatingTextCamera } from "../components/createFloatingText.js";
-import { DAY_DURATION, NIGHT_DURATION, ENABLE_MINI_VIEW } from "../constants";
+import {
+  DAY_DURATION,
+  NIGHT_DURATION,
+  ENABLE_MINI_VIEW,
+  FULL_MOON_NIGHT_INTERVAL,
+  DEFAULT_FOG_DENSITY,
+  MIST_FOG_DENSITY,
+  MIST_CHECK_INTERVAL,
+  MIST_CHANCE,
+  MIST_DURATION,
+  RAIN_CHECK_INTERVAL,
+  RAIN_CHANCE,
+  RAIN_DURATION,
+} from "../constants";
 
 const TOTAL_CYCLE = DAY_DURATION + NIGHT_DURATION;
 
@@ -29,6 +42,7 @@ export class Game {
     this.initInteraction();
     this.initDayNightIcon();
     this.initMinimap();
+    this.initWeather();
     if (ENABLE_MINI_VIEW) {
       this.initMiniView();
     }
@@ -174,6 +188,137 @@ export class Game {
     this.minimap = new Minimap(this.container);
   }
 
+  _randRange(range) {
+    return range.min + Math.random() * (range.max - range.min);
+  }
+
+  initWeather() {
+    this.defaultFogColor = new THREE.Color(0xb3b3b3);
+    this.mistFogColor = new THREE.Color(0x9aa8b0);
+    this.bloodFogColor = new THREE.Color(0x401015);
+
+    this.weatherState = {
+      mistActive: false,
+      mistTimer: this._randRange(MIST_CHECK_INTERVAL),
+      rainActive: false,
+      rainTimer: this._randRange(RAIN_CHECK_INTERVAL),
+    };
+
+    const makePoints = (count, color, size) => {
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        positions[i * 3] = (Math.random() - 0.5) * 60;
+        positions[i * 3 + 1] = Math.random() * 25;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(positions, 3)
+      );
+      const material = new THREE.PointsMaterial({
+        color,
+        size,
+        transparent: true,
+        opacity: 0.75,
+        depthWrite: false,
+      });
+      const points = new THREE.Points(geometry, material);
+      points.visible = false;
+      points.frustumCulled = false;
+      return points;
+    };
+
+    this.rainPoints = makePoints(600, 0x88aaff, 0.12);
+    this.snowPoints = makePoints(450, 0xffffff, 0.22);
+
+    this.weatherGroup = new THREE.Group();
+    this.weatherGroup.add(this.rainPoints, this.snowPoints);
+    this.scene.add(this.weatherGroup);
+  }
+
+  updateWeather(deltaSeconds) {
+    if (deltaSeconds <= 0) return;
+
+    const player = this.scene.player;
+    this.weatherGroup.position.set(player.position.x, 0, player.position.z);
+
+    const state = this.weatherState;
+    state.mistTimer -= deltaSeconds;
+    if (state.mistTimer <= 0) {
+      if (state.mistActive) {
+        state.mistActive = false;
+        state.mistTimer = this._randRange(MIST_CHECK_INTERVAL);
+      } else if (Math.random() < MIST_CHANCE) {
+        state.mistActive = true;
+        state.mistTimer = this._randRange(MIST_DURATION);
+      } else {
+        state.mistTimer = this._randRange(MIST_CHECK_INTERVAL);
+      }
+    }
+    this.scene.isMist = state.mistActive;
+
+    state.rainTimer -= deltaSeconds;
+    if (state.rainTimer <= 0) {
+      if (state.rainActive) {
+        state.rainActive = false;
+        state.rainTimer = this._randRange(RAIN_CHECK_INTERVAL);
+      } else if (Math.random() < RAIN_CHANCE) {
+        state.rainActive = true;
+        state.rainTimer = this._randRange(RAIN_DURATION);
+      } else {
+        state.rainTimer = this._randRange(RAIN_CHECK_INTERVAL);
+      }
+    }
+
+    const biome = this.scene.tileManager?.getBiomeNameAt(
+      player.position.x,
+      player.position.z
+    );
+    const raining = state.rainActive && biome === "forest";
+    const snowing = biome === "snow";
+    this.rainPoints.visible = raining;
+    this.snowPoints.visible = snowing;
+
+    if (raining) {
+      this._dropPoints(this.rainPoints, 24 * deltaSeconds, 0);
+    }
+    if (snowing) {
+      this._dropPoints(this.snowPoints, 3.5 * deltaSeconds, deltaSeconds);
+    }
+
+    const fog = this.scene.fog;
+    const targetDensity = state.mistActive
+      ? MIST_FOG_DENSITY
+      : DEFAULT_FOG_DENSITY;
+    fog.density += (targetDensity - fog.density) * Math.min(deltaSeconds, 1);
+
+    const targetColor = state.mistActive
+      ? this.mistFogColor
+      : this.isFullMoon && this.isNight
+        ? this.bloodFogColor
+        : this.defaultFogColor;
+    fog.color.lerp(targetColor, Math.min(deltaSeconds, 1));
+  }
+
+  _dropPoints(points, fallStep, driftDelta) {
+    const positions = points.geometry.getAttribute("position");
+    for (let i = 0; i < positions.count; i++) {
+      let y = positions.getY(i) - fallStep;
+      if (y < 0) {
+        y += 25;
+      }
+      positions.setY(i, y);
+      if (driftDelta > 0) {
+        positions.setX(
+          i,
+          positions.getX(i) + Math.sin(y * 2 + i) * driftDelta
+        );
+      }
+    }
+    positions.needsUpdate = true;
+  }
+
   initDayNightIcon() {
     this.icon = document.createElement("div");
     this.icon.style.position = "absolute";
@@ -194,6 +339,16 @@ export class Game {
 
     const elevation = smoothProgress * 75;
     this.isNight = smoothProgress === 0;
+
+    if (this.isNight && !this._wasNight) {
+      this.nightCount = (this.nightCount ?? 0) + 1;
+    }
+    this._wasNight = this.isNight;
+    this.isFullMoon =
+      this.isNight &&
+      (this.nightCount ?? 0) > 0 &&
+      this.nightCount % FULL_MOON_NIGHT_INTERVAL === 0;
+    this.scene.isFullMoon = this.isFullMoon;
 
     let hours;
     if (isDay) {
@@ -234,12 +389,20 @@ export class Game {
       Math.min(smoothProgress * 1.8, 1)
     );
     this.sunLight.visible = smoothProgress > 0.01;
-    this.ambientLight.intensity = 0.05 + 0.15 * smoothProgress;
+    if (this.isFullMoon) {
+      this.ambientLight.color.setHex(0xff6666);
+      this.ambientLight.intensity = 0.12;
+    } else {
+      this.ambientLight.color.setHex(0xffffff);
+      this.ambientLight.intensity = 0.05 + 0.15 * smoothProgress;
+    }
     this.renderer.toneMappingExposure = 0.2 + smoothProgress * 1.3;
 
     if (this.icon) {
       const iconStyle = this.isNight
-        ? "filter: sepia(1) saturate(2.5) hue-rotate(175deg) brightness(1.25) drop-shadow(0 0 8px rgba(140, 180, 255, 0.8));"
+        ? this.isFullMoon
+          ? "filter: sepia(1) saturate(6) hue-rotate(-45deg) brightness(1.1) drop-shadow(0 0 10px rgba(255, 60, 60, 0.9));"
+          : "filter: sepia(1) saturate(2.5) hue-rotate(175deg) brightness(1.25) drop-shadow(0 0 8px rgba(140, 180, 255, 0.8));"
         : "filter: sepia(1) saturate(6) hue-rotate(-15deg) brightness(1.15) drop-shadow(0 0 8px rgba(255, 200, 50, 0.8));";
       this.icon.innerHTML = `<img src="${
         this.isNight ? "./assets/imgs/moon.png" : "./assets/imgs/sun.png"
@@ -278,6 +441,7 @@ export class Game {
 
     this.updateSunPosition(this.totalElapsedTime);
     this.scene.isNight = this.isNight;
+    this.updateWeather(this.scene.isPaused ? 0 : deltaMs / 1000);
     this.minimap.update(
       this.scene.player,
       this.scene.enemies,
@@ -312,6 +476,12 @@ export class Game {
       window.removeEventListener("keydown", this.onMiniViewKeyDown);
     }
     this.minimap.dispose();
+    if (this.weatherGroup) {
+      for (const points of [this.rainPoints, this.snowPoints]) {
+        points.geometry.dispose();
+        points.material.dispose();
+      }
+    }
     if (this.miniRenderer) {
       this.miniRenderer.dispose();
     }

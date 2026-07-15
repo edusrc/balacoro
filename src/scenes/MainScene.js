@@ -3,6 +3,7 @@ import { InputController } from "../core/InputController.js";
 import { WorldTileManager } from "../core/WorldTileManager.js";
 import { Player } from "../objects/Player.js";
 import { Enemy } from "../objects/Enemy.js";
+import { Mimic } from "../objects/Mimic.js";
 import { Item } from "../objects/Item.js";
 import { showMessage } from "../components/FloatingMessage.js";
 import {
@@ -20,6 +21,14 @@ import {
   DIFFICULTY_INCREASE_INTERVAL_SECONDS,
   PLAYER_PASSIVES,
   PROJECTILE_SIZE,
+  LEVELS_PER_ENEMY_POWER,
+  ENEMY_BIOME_BIAS_CHANCE,
+  ENEMY_SOLID_CHECK_INTERVAL,
+  BOSS_SUMMON_COUNT,
+  MIMIC_SPAWN_INTERVAL,
+  MIMIC_HEALTH_MULTIPLIER,
+  FULL_MOON_SPAWN_MULTIPLIER,
+  FULL_MOON_COIN_MULTIPLIER,
   BOSS_HEALTH_MULTIPLIER,
   BOSS_SPEED,
 } from "../constants.js";
@@ -59,6 +68,11 @@ export class MainScene extends THREE.Scene {
       ITEM_SPAWN_INTERVAL.min,
       ITEM_SPAWN_INTERVAL.max
     );
+    this.mimicSpawnTimer = 0;
+    this.nextMimicSpawnTime = this._getRandomFloat(
+      MIMIC_SPAWN_INTERVAL.min,
+      MIMIC_SPAWN_INTERVAL.max
+    );
 
     this._initPlayer();
   }
@@ -86,7 +100,46 @@ export class MainScene extends THREE.Scene {
   }
 
   addCoins(amount) {
-    this.coinsEarned += amount;
+    this.coinsEarned += this.isFullMoon
+      ? amount * FULL_MOON_COIN_MULTIPLIER
+      : amount;
+  }
+
+  spawnMinions(boss) {
+    for (let i = 0; i < BOSS_SUMMON_COUNT; i++) {
+      const angle = (i / BOSS_SUMMON_COUNT) * Math.PI * 2 + Math.random();
+      const pos = new THREE.Vector3(
+        boss.position.x + Math.cos(angle) * (boss.size + 1.5),
+        0,
+        boss.position.z + Math.sin(angle) * (boss.size + 1.5)
+      );
+      const minion = new Enemy(
+        this.player,
+        pos,
+        4,
+        BASE_ENEMY_HEALTH + boss.difficulty * ENEMY_HEALTH_GROWTH,
+        boss.difficulty,
+        false,
+        "runner"
+      );
+      this.add(minion);
+      this.enemies.push(minion);
+    }
+  }
+
+  _spawnMimic(difficulty) {
+    const pos = this._getRandomSpawnAroundPlayer(25, 50);
+    const power = this._getEnemyPower(difficulty);
+    const mimic = new Mimic(
+      this.player,
+      pos,
+      4.5,
+      (BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH) *
+        MIMIC_HEALTH_MULTIPLIER,
+      power
+    );
+    this.add(mimic);
+    this.enemies.push(mimic);
   }
 
   togglePause() {
@@ -189,18 +242,25 @@ export class MainScene extends THREE.Scene {
     const biasMap = { snow: "tank", desert: "runner", city: "brute" };
     const bias = biasMap[biome];
     const forcedArchetype =
-      bias && Math.random() < 0.4 ? bias : undefined;
+      bias && Math.random() < ENEMY_BIOME_BIAS_CHANCE ? bias : undefined;
+    const power = this._getEnemyPower(difficulty);
     const enemy = new Enemy(
       this.player,
       pos,
       4,
-      BASE_ENEMY_HEALTH + difficulty * ENEMY_HEALTH_GROWTH,
-      difficulty,
+      BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH,
+      power,
       false,
       forcedArchetype
     );
     this.add(enemy);
     this.enemies.push(enemy);
+  }
+
+  _getEnemyPower(difficulty) {
+    return (
+      difficulty + Math.floor((this.player.level - 1) / LEVELS_PER_ENEMY_POWER)
+    );
   }
 
   _spawnEnemyPack(difficulty) {
@@ -215,15 +275,16 @@ export class MainScene extends THREE.Scene {
       ENEMY_SPAWN_DISTANCE.min,
       ENEMY_SPAWN_DISTANCE.max
     );
+    const power = this._getEnemyPower(difficulty);
     const health =
-      (BASE_ENEMY_HEALTH + difficulty * ENEMY_HEALTH_GROWTH) *
+      (BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH) *
       BOSS_HEALTH_MULTIPLIER;
     const boss = new Enemy(
       this.player,
       pos,
       BOSS_SPEED,
       health,
-      difficulty,
+      power,
       true
     );
     this.add(boss);
@@ -265,7 +326,7 @@ export class MainScene extends THREE.Scene {
 
       enemy.solidCheckTimer = (enemy.solidCheckTimer ?? Math.random()) - delta;
       if (enemy.solidCheckTimer <= 0) {
-        enemy.solidCheckTimer = 1.5;
+        enemy.solidCheckTimer = ENEMY_SOLID_CHECK_INTERVAL;
         if (
           !enemy.isDying &&
           this.tileManager.intersectsSolid(
@@ -407,7 +468,7 @@ export class MainScene extends THREE.Scene {
     }
 
     for (const enemy of this.enemies) {
-      if (enemy.isDying) continue;
+      if (enemy.isDying || enemy.isDormant) continue;
       const minDist = playerRadius + enemy.hitboxRadius;
       const distVec = new THREE.Vector3().subVectors(
         enemy.position,
@@ -421,7 +482,7 @@ export class MainScene extends THREE.Scene {
     }
 
     for (const enemy of this.enemies) {
-      if (!enemy.parent || enemy.isDying) {
+      if (!enemy.parent || enemy.isDying || enemy.isDormant) {
         continue;
       }
       enemy.damageTimer = (enemy.damageTimer || 0) - delta;
@@ -442,9 +503,10 @@ export class MainScene extends THREE.Scene {
 
   _updateSpawns(delta, difficulty) {
     this.enemySpawnTimer += delta;
+    const moonFactor = this.isFullMoon ? FULL_MOON_SPAWN_MULTIPLIER : 1;
     const interval = Math.max(
       0.5,
-      this.nextEnemySpawnTime / (1 + difficulty * 0.1)
+      this.nextEnemySpawnTime / ((1 + difficulty * 0.1) * moonFactor)
     );
     if (this.enemySpawnTimer >= interval) {
       this.enemySpawnTimer = 0;
@@ -464,6 +526,16 @@ export class MainScene extends THREE.Scene {
         ITEM_SPAWN_INTERVAL.max
       );
     }
+
+    this.mimicSpawnTimer += delta;
+    if (this.mimicSpawnTimer >= this.nextMimicSpawnTime) {
+      this.mimicSpawnTimer = 0;
+      this._spawnMimic(difficulty);
+      this.nextMimicSpawnTime = this._getRandomFloat(
+        MIMIC_SPAWN_INTERVAL.min,
+        MIMIC_SPAWN_INTERVAL.max
+      );
+    }
   }
 
   update(camera) {
@@ -479,6 +551,21 @@ export class MainScene extends THREE.Scene {
     if (this.currentDifficulty > this.highestBossDifficultySpawned) {
       this.highestBossDifficultySpawned = this.currentDifficulty;
       this._spawnBoss(this.currentDifficulty);
+    }
+
+    if (this.isFullMoon && !this._fullMoonAnnounced) {
+      this._fullMoonAnnounced = true;
+      showMessage("BLOOD MOON RISES!", "#ff4444");
+    }
+    if (!this.isFullMoon) {
+      this._fullMoonAnnounced = false;
+    }
+    if (this.isMist && !this._mistAnnounced) {
+      this._mistAnnounced = true;
+      showMessage("A dense mist rolls in...", "#aabbcc");
+    }
+    if (!this.isMist) {
+      this._mistAnnounced = false;
     }
 
     this.player.update(delta);
