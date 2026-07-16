@@ -346,7 +346,7 @@ export const SOUND_CONFIG = {
       type: "song",
       files: ["music-blood-moon.mp3"],
       maxVolume: 0.65,
-      loop: true,
+      loop: false,
       kind: "music",
       fadeInSeconds: 2,
       fadeOutSeconds: 3,

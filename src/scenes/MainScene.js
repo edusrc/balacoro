@@ -33,6 +33,7 @@ import {
   FULL_MOON_DAMAGE_MULTIPLIER,
   BOSS_HEALTH_MULTIPLIER,
   BOSS_SPEED,
+  BOSS_SPAWN_EVERY_LEVELS,
 } from "../constants.js";
 export class MainScene extends THREE.Scene {
   constructor() {
@@ -599,7 +600,10 @@ export class MainScene extends THREE.Scene {
     this.currentPowerContinuous =
       effectiveSeconds / DIFFICULTY_INCREASE_INTERVAL_SECONDS;
 
-    if (this.currentDifficulty > this.highestBossDifficultySpawned) {
+    if (
+      this.currentDifficulty > this.highestBossDifficultySpawned &&
+      this.currentDifficulty % BOSS_SPAWN_EVERY_LEVELS === 0
+    ) {
       this.highestBossDifficultySpawned = this.currentDifficulty;
       this._spawnBoss(this.currentDifficulty);
     }

@@ -16,6 +16,7 @@ export const ENEMY_RADIUS = 0.5;
 export const DIFFICULTY_INCREASE_INTERVAL_SECONDS = 240;
 export const INITIAL_DIFFICULTY = 0;
 
+export const BOSS_SPAWN_EVERY_LEVELS = 2;
 export const BOSS_SIZE_MULTIPLIER = 4;
 export const BOSS_HEALTH_MULTIPLIER = 15;
 export const BOSS_DAMAGE_MULTIPLIER = 2;

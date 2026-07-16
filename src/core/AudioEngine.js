@@ -1,7 +1,7 @@
 import { soundRepository } from "./SoundRepository.js";
 
 const MUFFLE_OFF_FREQUENCY = 20000;
-const DUCKED_MUSIC_FACTOR = 0.2;
+const DUCKED_MUSIC_FACTOR = 0;
 const VOLUME_STORAGE_KEY = "balacoro_volumes";
 
 export class AudioEngine {
@@ -309,6 +309,13 @@ export class AudioEngine {
     }
     source.connect(gain);
     gain.connect(this.musicGain);
+    source.onended = () => {
+      if (this.currentMusic?.source !== source) {
+        return;
+      }
+      this.currentMusic = null;
+      this.onMusicEnded?.(name);
+    };
     source.start(startAt);
     this.currentMusic = { name, source, gain, sound };
   }
@@ -464,7 +471,7 @@ export class AudioEngine {
     this.duckGain.gain.setTargetAtTime(
       ducked ? DUCKED_MUSIC_FACTOR : 1,
       this.context.currentTime,
-      0.8
+      ducked ? 1.5 : 2.5
     );
   }
 

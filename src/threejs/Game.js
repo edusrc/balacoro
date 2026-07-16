@@ -46,6 +46,12 @@ export class Game {
     this.initDayNightIcon();
     this.initMinimap();
     this.initWeather();
+    this.bloodMoonEnded = false;
+    audio.onMusicEnded = (name) => {
+      if (name === "musicBloodMoon") {
+        this.bloodMoonEnded = true;
+      }
+    };
     if (ENABLE_MINI_VIEW) {
       this.initMiniView();
     }
@@ -333,6 +339,7 @@ export class Game {
       : "day";
     if (phase !== this._audioPhase) {
       const isFirstSync = this._audioPhase === undefined;
+      const previousPhase = this._audioPhase;
       this._audioPhase = phase;
 
       if (phase === "day") {
@@ -341,7 +348,9 @@ export class Game {
         }
         audio.playMusic("musicDay");
       } else if (phase === "night") {
-        audio.play("eventNightfall");
+        if (previousPhase !== "bloodmoon") {
+          audio.play("eventNightfall");
+        }
         audio.playMusic("musicNight");
       } else {
         audio.play("eventBloodMoon");
@@ -434,8 +443,12 @@ export class Game {
       this.nightCount = (this.nightCount ?? 0) + 1;
     }
     this._wasNight = this.isNight;
+    if (!this.isNight) {
+      this.bloodMoonEnded = false;
+    }
     this.isFullMoon =
       this.isNight &&
+      !this.bloodMoonEnded &&
       (this.nightCount ?? 0) > 0 &&
       this.nightCount % FULL_MOON_NIGHT_INTERVAL === 0;
     this.scene.isFullMoon = this.isFullMoon;
@@ -560,6 +573,7 @@ export class Game {
   };
 
   dispose() {
+    audio.onMusicEnded = null;
     audio.stopAll();
     cancelAnimationFrame(this.animationFrameId);
     window.removeEventListener("resize", this.onWindowResize);
