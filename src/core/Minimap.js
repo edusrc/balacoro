@@ -99,7 +99,11 @@ export class Minimap {
       );
     }
 
-    this.drawPlayerDot(centerX, centerY);
+    this.drawPlayerDot(
+      centerX,
+      centerY,
+      `#${(player.customColor ?? 0xffee00).toString(16).padStart(6, "0")}`
+    );
   }
 
   renderBiomeLayer(
@@ -224,11 +228,16 @@ export class Minimap {
     this.renderingContext.fillText("☠", positionX, positionY);
   }
 
-  drawPlayerDot(centerX, centerY) {
-    this.renderingContext.beginPath();
-    this.renderingContext.arc(centerX, centerY, 5, 0, Math.PI * 2);
-    this.renderingContext.fillStyle = "#ffee00";
-    this.renderingContext.fill();
+  drawPlayerDot(centerX, centerY, color) {
+    const ctx = this.renderingContext;
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 7;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.restore();
   }
 
   dispose() {
