@@ -14,7 +14,7 @@ import { audio } from "./core/AudioEngine.js";
 
 export default function App() {
   const threeRef = useRef(null);
-  const [screen, setScreen] = useState("menu");
+  const [screen, setScreen] = useState("boot");
   const [gameOver, setGameOver] = useState(false);
   const [gameOverStats, setGameOverStats] = useState({ level: 1, elapsedTime: 0 });
   const [isCameraInfoVisible, setIsCameraInfoVisible] = useState(false);
@@ -23,6 +23,16 @@ export default function App() {
   const [levelUpOpen, setLevelUpOpen] = useState(false);
   const [skillChoices, setSkillChoices] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [volumes, setVolumes] = useState(() => ({ ...audio.userVolumes }));
+
+  const changeVolume = (key, value) => {
+    if (key === "master") {
+      audio.setMasterVolume(value);
+    } else {
+      audio.setEffectsVolume(value);
+    }
+    setVolumes({ ...audio.userVolumes });
+  };
 
   const [stats, setStats] = useState({
     camPos: { x: 0, y: 0, z: 0 },
@@ -59,6 +69,22 @@ export default function App() {
   const gameRef = useRef(null);
 
   useEffect(() => {
+    if (screen !== "boot") {
+      return undefined;
+    }
+    const enter = () => setScreen("menu");
+    window.addEventListener("keydown", enter);
+    window.addEventListener("pointerdown", enter);
+    return () => {
+      window.removeEventListener("keydown", enter);
+      window.removeEventListener("pointerdown", enter);
+    };
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen === "boot") {
+      return undefined;
+    }
     if (screen !== "game") {
       audio.playMusic("musicMenu");
       return undefined;
@@ -202,6 +228,54 @@ export default function App() {
     setSkillChoices(null);
     setBanner(null);
   };
+
+  if (screen === "boot") {
+    return (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "#08080e",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "48px",
+          fontFamily: '"Press Start 2P", monospace',
+          cursor: "pointer",
+        }}
+      >
+        <style>{`
+          @keyframes boot-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.15; }
+          }
+        `}</style>
+        <h1
+          style={{
+            fontSize: "min(7vw, 80px)",
+            letterSpacing: "10px",
+            color: "#ffee00",
+            textShadow: "0 0 24px rgba(255, 238, 0, 0.5), 5px 5px 0 #7a5c00",
+            margin: 0,
+          }}
+        >
+          BALACORO
+        </h1>
+        <div
+          style={{
+            fontSize: "14px",
+            letterSpacing: "4px",
+            color: "#fff",
+            textShadow: "2px 2px #000",
+            animation: "boot-blink 1.6s steps(1) infinite",
+          }}
+        >
+          PRESS ANY KEY
+        </div>
+      </div>
+    );
+  }
 
   if (screen === "menu") {
     return (
@@ -911,6 +985,62 @@ export default function App() {
           >
             BACK TO MENU
           </button>
+
+          <div
+            style={{
+              marginTop: "40px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "20px",
+              width: "280px",
+              padding: "20px 24px",
+              background: "rgba(255, 255, 255, 0.06)",
+              border: "1px solid rgba(255, 255, 255, 0.25)",
+              borderRadius: "6px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "11px",
+                letterSpacing: "3px",
+                color: "#ffee00",
+                textAlign: "center",
+              }}
+            >
+              OPTIONS
+            </div>
+            {[
+              { key: "master", label: "SOUND" },
+              { key: "effects", label: "EFFECTS" },
+            ].map(({ key, label }) => (
+              <label
+                key={key}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  fontSize: "10px",
+                  letterSpacing: "2px",
+                  color: "#ccc",
+                }}
+              >
+                <span>
+                  {label}: {Math.round(volumes[key] * 100)}%
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={volumes[key]}
+                  onChange={(event) =>
+                    changeVolume(key, Number(event.target.value))
+                  }
+                  style={{ accentColor: "#ffee00", width: "100%" }}
+                />
+              </label>
+            ))}
+          </div>
         </div>
       )}
 

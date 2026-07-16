@@ -2,6 +2,7 @@ import { soundRepository } from "./SoundRepository.js";
 
 const MUFFLE_OFF_FREQUENCY = 20000;
 const DUCKED_MUSIC_FACTOR = 0.2;
+const VOLUME_STORAGE_KEY = "balacoro_volumes";
 
 export class AudioEngine {
   constructor(repository = soundRepository) {
@@ -16,6 +17,17 @@ export class AudioEngine {
     this.currentMusic = null;
     this.pendingMusicName = undefined;
     this.paused = false;
+
+    this.userVolumes = { master: 1, effects: 1 };
+    try {
+      const saved = JSON.parse(localStorage.getItem(VOLUME_STORAGE_KEY));
+      if (saved) {
+        this.userVolumes.master = saved.master ?? 1;
+        this.userVolumes.effects = saved.effects ?? 1;
+      }
+    } catch {
+      this.userVolumes = { master: 1, effects: 1 };
+    }
 
     const resume = () => {
       if (this.context?.state === "suspended") {
@@ -35,7 +47,8 @@ export class AudioEngine {
     this.context = context;
 
     this.masterGain = context.createGain();
-    this.masterGain.gain.value = this.globals.masterVolume;
+    this.masterGain.gain.value =
+      this.globals.masterVolume * this.userVolumes.master;
     this.masterGain.connect(context.destination);
 
     this.muffleGain = context.createGain();
@@ -54,18 +67,72 @@ export class AudioEngine {
     this.musicGain.connect(this.duckGain);
 
     this.ambienceGain = context.createGain();
-    this.ambienceGain.gain.value = this.globals.ambienceVolume;
+    this.ambienceGain.gain.value =
+      this.globals.ambienceVolume * this.userVolumes.effects;
     this.ambienceGain.connect(this.muffleFilter);
 
     this.sfxGain = context.createGain();
-    this.sfxGain.gain.value = this.globals.sfxVolume;
+    this.sfxGain.gain.value =
+      this.globals.sfxVolume * this.userVolumes.effects;
     this.sfxGain.connect(this.masterGain);
 
     this.uiGain = context.createGain();
-    this.uiGain.gain.value = this.globals.sfxVolume;
+    this.uiGain.gain.value =
+      this.globals.sfxVolume * this.userVolumes.effects;
     this.uiGain.connect(this.masterGain);
 
     return context;
+  }
+
+  _saveVolumes() {
+    try {
+      localStorage.setItem(
+        VOLUME_STORAGE_KEY,
+        JSON.stringify(this.userVolumes)
+      );
+    } catch {
+      return;
+    }
+  }
+
+  setMasterVolume(value) {
+    const clamped = Math.min(Math.max(value, 0), 1);
+    this.userVolumes.master = clamped;
+    this._saveVolumes();
+    if (this.context) {
+      this.masterGain.gain.setTargetAtTime(
+        this.globals.masterVolume * clamped,
+        this.context.currentTime,
+        0.05
+      );
+    }
+  }
+
+  setEffectsVolume(value) {
+    const clamped = Math.min(Math.max(value, 0), 1);
+    this.userVolumes.effects = clamped;
+    this._saveVolumes();
+    if (!this.context) {
+      return;
+    }
+    const now = this.context.currentTime;
+    this.ambienceGain.gain.setTargetAtTime(
+      this.globals.ambienceVolume * clamped,
+      now,
+      0.05
+    );
+    this.uiGain.gain.setTargetAtTime(
+      this.globals.sfxVolume * clamped,
+      now,
+      0.05
+    );
+    if (!(this.paused && this.globals.pauseMuffle.sfxMuted)) {
+      this.sfxGain.gain.setTargetAtTime(
+        this.globals.sfxVolume * clamped,
+        now,
+        0.05
+      );
+    }
   }
 
   _loadBuffer(url) {
@@ -383,7 +450,7 @@ export class AudioEngine {
     );
     if (muffle.sfxMuted) {
       this.sfxGain.gain.setTargetAtTime(
-        paused ? 0 : this.globals.sfxVolume,
+        paused ? 0 : this.globals.sfxVolume * this.userVolumes.effects,
         now,
         0.1
       );

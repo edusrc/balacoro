@@ -92,7 +92,7 @@ export const SOUND_CONFIG = {
       enabled: true,
       type: "song",
       files: ["music-menu.mp3"],
-      maxVolume: 0.7,
+      maxVolume: 0.5,
       loop: true,
       kind: "music",
       fadeInSeconds: 1.5,
