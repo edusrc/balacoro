@@ -1,5 +1,6 @@
 import React from "react";
 import { PLAYER_PASSIVES, PASSIVE_COLORS } from "../constants.js";
+import { audio } from "../core/AudioEngine.js";
 
 const INCREMENT_LABELS = {
   health: "+15 HP",
@@ -113,7 +114,11 @@ export default function LevelUpModal({ onChoose }) {
               key={passive}
               className="upgrade-card"
               style={{ "--accent": PASSIVE_COLORS[passive] }}
-              onClick={() => onChoose(passive)}
+              onMouseEnter={() => audio.play("uiHover")}
+              onClick={() => {
+                audio.play("skillSelect");
+                onChoose(passive);
+              }}
             >
               <div
                 style={{

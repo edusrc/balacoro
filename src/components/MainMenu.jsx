@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import MenuStage, { MENU_CSS } from "./MenuStage.jsx";
 import { loadCustomization } from "../core/customization.js";
+import { audio } from "../core/AudioEngine.js";
 
 const MENU_ITEMS = [
   { id: "play", label: "PLAY" },
@@ -16,6 +17,7 @@ export default function MainMenu({ onPlay, onCustomize, onMonsterLab }) {
     if (item.disabled) {
       return;
     }
+    audio.play("uiClick");
     if (item.id === "play") {
       onPlay();
     }
@@ -85,6 +87,7 @@ export default function MainMenu({ onPlay, onCustomize, onMonsterLab }) {
               key={item.id}
               className="menu-button"
               disabled={item.disabled}
+              onMouseEnter={() => !item.disabled && audio.play("uiHover")}
               onClick={() => handleSelect(item)}
             >
               {item.label}

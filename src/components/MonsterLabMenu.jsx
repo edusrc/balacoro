@@ -8,6 +8,7 @@ import {
   eyeDayMaterial,
   eyeNightMaterial,
   ARCHETYPE_NAMES,
+  DIFFICULTY_COLOR_MAX_LEVEL,
 } from "../objects/MonsterGenome.js";
 import {
   buildMimicBody,
@@ -29,6 +30,10 @@ import {
   MIMIC_HEALTH_MULTIPLIER,
   MIMIC_COIN_MULTIPLIER,
   MIMIC_WAKE_DISTANCE,
+  FULL_MOON_SPEED_MULTIPLIER,
+  FULL_MOON_DAMAGE_MULTIPLIER,
+  FULL_MOON_SPAWN_MULTIPLIER,
+  FULL_MOON_COIN_MULTIPLIER,
 } from "../constants.js";
 
 const PIXEL_SCALE = 3;
@@ -448,6 +453,7 @@ export default function MonsterLabMenu({ onBack }) {
   const [difficulty, setDifficulty] = useState(0);
   const [elite, setElite] = useState(false);
   const [redEyes, setRedEyes] = useState(false);
+  const [bloodMoon, setBloodMoon] = useState(false);
   const [genome, setGenome] = useState(() => generateGenome(false));
   const [mimicAwake, setMimicAwake] = useState(false);
 
@@ -504,7 +510,7 @@ export default function MonsterLabMenu({ onBack }) {
           genome={genome}
           difficulty={difficulty}
           elite={elite && !isBossType}
-          redEyes={redEyes}
+          redEyes={redEyes || bloodMoon}
           previewScale={previewScale}
         />
       )}
@@ -587,7 +593,7 @@ export default function MonsterLabMenu({ onBack }) {
                   label="DIFFICULTY (AWAKE COLOR)"
                   value={difficulty}
                   min={0}
-                  max={16}
+                  max={DIFFICULTY_COLOR_MAX_LEVEL}
                   step={1}
                   onChange={setDifficulty}
                 />
@@ -728,7 +734,7 @@ export default function MonsterLabMenu({ onBack }) {
                 label="DIFFICULTY (COLOR)"
                 value={difficulty}
                 min={0}
-                max={16}
+                max={DIFFICULTY_COLOR_MAX_LEVEL}
                 step={1}
                 onChange={setDifficulty}
               />
@@ -784,7 +790,31 @@ export default function MonsterLabMenu({ onBack }) {
                   checked={redEyes}
                   onChange={setRedEyes}
                 />
+                <LabCheckbox
+                  label="BLOOD MOON"
+                  checked={bloodMoon}
+                  onChange={setBloodMoon}
+                />
               </div>
+
+              {bloodMoon && (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    fontSize: "9px",
+                    color: "#ff6666",
+                    letterSpacing: "1px",
+                    lineHeight: "1.7",
+                    border: "1px solid #551111",
+                    padding: "6px 8px",
+                  }}
+                >
+                  BLOOD MOON FRENZY: SPD x{FULL_MOON_SPEED_MULTIPLIER}, DMG x
+                  {FULL_MOON_DAMAGE_MULTIPLIER}, SPAWN RATE x
+                  {FULL_MOON_SPAWN_MULTIPLIER}, COINS x
+                  {FULL_MOON_COIN_MULTIPLIER}, RED EYES
+                </div>
+              )}
 
               <button
                 className="menu-button"

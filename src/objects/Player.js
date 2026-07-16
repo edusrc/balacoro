@@ -5,6 +5,7 @@ import { showXPText } from "../components/XPText.js";
 import { showDamageText } from "../components/DamageText.js";
 import { loadCustomization } from "../core/customization.js";
 import { createHat, createGlasses, createEars } from "../core/cosmetics.js";
+import { audio } from "../core/AudioEngine.js";
 
 import {
   PLAYER_INITIAL_HEALTH,
@@ -197,6 +198,11 @@ export class Player extends THREE.Object3D {
       this.health = Math.min(this.health + this.healthRegen * delta, this.maxHealth);
     }
 
+    audio.setHeartbeat(
+      this.health > 0 &&
+        this.health / this.maxHealth <= audio.globals.lowHealthHeartbeatRatio
+    );
+
     const energySkill = this.active_skills.energyExplosion;
     if (energySkill?.enabled) {
       this.energyExplosionTimer = Math.max(this.energyExplosionTimer - delta, 0);
@@ -266,6 +272,7 @@ export class Player extends THREE.Object3D {
         );
         if (this.forceFieldCooldownTimer <= 0) {
           this.shieldCount += 1;
+          audio.play("shieldGain");
           this.updateForceFieldVisual();
           if (this.shieldCount < forceFieldSkill.shieldCount) {
             this.forceFieldCooldownTimer = effectiveCooldown;
@@ -334,6 +341,8 @@ export class Player extends THREE.Object3D {
       }, 200);
     }
 
+    audio.play("skillFreezeExplosion");
+
     for (const enemy of parent.enemies) {
       const distance = enemy.position.distanceTo(this.position);
       if (distance <= radius) {
@@ -351,6 +360,8 @@ export class Player extends THREE.Object3D {
     if (!parent || !parent.enemies) {
       return;
     }
+
+    audio.play("skillEnergyExplosion");
 
     const circleGeometry = new THREE.RingGeometry(0.05, 0.1, 64);
     const circleMaterial = new THREE.MeshBasicMaterial({
@@ -413,6 +424,8 @@ export class Player extends THREE.Object3D {
     if (direction.lengthSq() === 0) {
       return;
     }
+
+    audio.play("playerDash");
 
     const newPos = this.position
       .clone()
@@ -521,6 +534,7 @@ export class Player extends THREE.Object3D {
   }
 
   attack() {
+    audio.play("playerShoot");
     const projectileSpeed = this.speed + PROJECTILE_SPEED_BASE;
     const isCritical = Math.random() < this.criticalChance;
     const baseDamage = this.damage;
@@ -677,6 +691,7 @@ export class Player extends THREE.Object3D {
     while (this.currentXP >= this.getXPToLevelUp()) {
       this.currentXP -= this.getXPToLevelUp();
       this.level += 1;
+      audio.play("playerLevelUp");
       if (this.onLevelUp) {
         this.onLevelUp();
       }
@@ -694,6 +709,7 @@ export class Player extends THREE.Object3D {
     const thornsSkill = this.active_skills.thorns;
 
     if (thornsSkill?.enabled && source?.hit) {
+      audio.play("thornsHit");
       source.hit(thornsSkill.damage);
     }
 
@@ -702,6 +718,7 @@ export class Player extends THREE.Object3D {
     }
 
     if (this.shieldCount > 0) {
+      audio.play("shieldBreak");
       this.shieldCount--;
       const forceFieldSkill = this.active_skills.forceField;
       if (forceFieldSkill?.enabled && this.forceFieldCooldownTimer <= 0) {
@@ -715,6 +732,7 @@ export class Player extends THREE.Object3D {
     }
 
     this.health -= amount;
+    audio.play("playerHurt");
 
     const worldPosition = new THREE.Vector3();
     this.getWorldPosition(worldPosition);
@@ -728,6 +746,8 @@ export class Player extends THREE.Object3D {
 
     if (this.health <= 0) {
       this.health = 0;
+      audio.setHeartbeat(false);
+      audio.play("playerDeath");
       if (this.onGameOver) {
         this.onGameOver();
       }

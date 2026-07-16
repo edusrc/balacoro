@@ -23,6 +23,8 @@ import {
   BOSS_CHARGE_SPEED_MULTIPLIER,
   CRITICAL_FLASH_DURATION,
   CRITICAL_FLASH_COLOR,
+  CRITICAL_PUNCH_SCALE,
+  FULL_MOON_SPEED_MULTIPLIER,
 } from "../constants.js";
 import {
   generateGenome,
@@ -31,6 +33,7 @@ import {
   eyeDayMaterial,
   eyeNightMaterial,
 } from "./MonsterGenome.js";
+import { audio } from "../core/AudioEngine.js";
 
 const particleGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.15);
 const freezeGeometry = new THREE.SphereGeometry(1, 16, 16);
@@ -137,6 +140,7 @@ export class Enemy extends THREE.Object3D {
 
     this.damageTimer = 0;
     this.flashTime = 0;
+    this.critPunchTime = 0;
     this.isDying = false;
     this.deathTimer = 0;
     this.deathParticles = [];
@@ -238,6 +242,14 @@ export class Enemy extends THREE.Object3D {
       }
     }
 
+    if (this.critPunchTime > 0) {
+      this.critPunchTime -= delta;
+      const punch = Math.max(this.critPunchTime / CRITICAL_FLASH_DURATION, 0);
+      this.mesh.scale
+        .copy(this.bodyScale)
+        .multiplyScalar(1 + punch * CRITICAL_PUNCH_SCALE);
+    }
+
     if (this.isFrozen) {
       this.freezeTimer -= delta;
       if (this.freezeTimer <= 0) {
@@ -288,8 +300,11 @@ export class Enemy extends THREE.Object3D {
       return tileManager?.intersectsSolid(box);
     };
 
+    const moveSpeed =
+      this.speed *
+      (this.parent?.isFullMoon ? FULL_MOON_SPEED_MULTIPLIER : 1);
     const currentDist = this.position.distanceToSquared(this.target.position);
-    const forward = direction.clone().multiplyScalar(this.speed * delta);
+    const forward = direction.clone().multiplyScalar(moveSpeed * delta);
     const forwardPos = this.position.clone().add(forward);
 
     if (!isBlocked(forwardPos)) {
@@ -315,7 +330,7 @@ export class Enemy extends THREE.Object3D {
 
       const candidate = this.position
         .clone()
-        .addScaledVector(this.detourDirection, this.speed * delta);
+        .addScaledVector(this.detourDirection, moveSpeed * delta);
       if (!isBlocked(candidate)) {
         this.position.copy(candidate);
       } else {
@@ -346,7 +361,7 @@ export class Enemy extends THREE.Object3D {
     for (const alt of alternatives) {
       const candidate = this.position
         .clone()
-        .add(alt.normalize().multiplyScalar(this.speed * delta));
+        .add(alt.normalize().multiplyScalar(moveSpeed * delta));
       if (!isBlocked(candidate)) {
         const dist = candidate.distanceToSquared(this.target.position);
         if (dist < bestDist) {
@@ -387,6 +402,9 @@ export class Enemy extends THREE.Object3D {
       ) {
         this.bossState = Math.random() < 0.6 ? "telegraph" : "summon";
         this.bossStateTime = 0;
+        if (this.bossState === "telegraph") {
+          audio.play("bossTelegraph", { position: this.position });
+        }
       }
       return false;
     }
@@ -415,7 +433,11 @@ export class Enemy extends THREE.Object3D {
     }
 
     if (this.bossState === "charge") {
-      const step = this.speed * BOSS_CHARGE_SPEED_MULTIPLIER * delta;
+      const step =
+        this.speed *
+        (this.parent?.isFullMoon ? FULL_MOON_SPEED_MULTIPLIER : 1) *
+        BOSS_CHARGE_SPEED_MULTIPLIER *
+        delta;
       const candidate = this.position
         .clone()
         .addScaledVector(this.chargeDirection, step);
@@ -436,6 +458,7 @@ export class Enemy extends THREE.Object3D {
       if (this.bossStateTime >= 0.6) {
         this.mesh.rotation.y = 0;
         if (this.parent?.spawnMinions) {
+          audio.play("bossSummon", { position: this.position });
           this.parent.spawnMinions(this);
         }
         this._endBossSpecial();
@@ -563,6 +586,10 @@ export class Enemy extends THREE.Object3D {
     this.health -= damage;
     this.updateHealthBar();
 
+    audio.play(isCritical ? "enemyCrit" : "enemyHit", {
+      position: this.position,
+    });
+
     const material = isCritical ? criticalFlashMaterial : flashMaterial;
     for (const entry of this.flashEntries) {
       entry.mesh.material = material;
@@ -573,6 +600,9 @@ export class Enemy extends THREE.Object3D {
     this.flashTime = isCritical
       ? CRITICAL_FLASH_DURATION
       : ENEMY_FLASH_DURATION;
+    if (isCritical) {
+      this.critPunchTime = CRITICAL_FLASH_DURATION;
+    }
 
     if (this.health <= 0) {
       this.die();
@@ -583,6 +613,7 @@ export class Enemy extends THREE.Object3D {
     this.isDying = true;
     this.deathTimer = ENEMY_DEATH_DURATION;
     this.flashTime = 0;
+    this.critPunchTime = 0;
     this._restoreMaterials();
 
     if (this.healthBarSprite) {
@@ -595,6 +626,10 @@ export class Enemy extends THREE.Object3D {
     }
 
     this._spawnDeathParticles();
+
+    audio.play(this.isBoss ? "bossDeath" : "enemyDeath", {
+      position: this.position,
+    });
 
     if (this.target?.gainXP) {
       this.target.gainXP(this.xpReward);

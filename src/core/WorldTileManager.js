@@ -144,6 +144,37 @@ export class WorldTileManager {
     return weights;
   }
 
+  getSmoothBiomeWeights(x, z) {
+    const gridX = x / this.tileSize;
+    const gridZ = z / this.tileSize;
+    const baseX = Math.floor(gridX);
+    const baseZ = Math.floor(gridZ);
+    const fracX = gridX - baseX;
+    const fracZ = gridZ - baseZ;
+
+    const weights = { city: 0, forest: 0, desert: 0, snow: 0 };
+    for (const [chunkX, weightX] of [
+      [baseX, 1 - fracX],
+      [baseX + 1, fracX],
+    ]) {
+      for (const [chunkZ, weightZ] of [
+        [baseZ, 1 - fracZ],
+        [baseZ + 1, fracZ],
+      ]) {
+        const corner = weightX * weightZ;
+        if (corner === 0) {
+          continue;
+        }
+        const sample = this.getBiomeSample(chunkX, chunkZ);
+        weights[sample.primary] += corner * (1 - sample.blend);
+        if (sample.secondary) {
+          weights[sample.secondary] += corner * sample.blend;
+        }
+      }
+    }
+    return weights;
+  }
+
   getBiomeNameForChunk(chunkX, chunkZ) {
     return this.getBiomeSample(chunkX, chunkZ).primary;
   }

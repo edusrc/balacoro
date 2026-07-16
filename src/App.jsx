@@ -10,6 +10,7 @@ import Banner from "./components/Banner.jsx";
 import DifficultySkull from "./components/DifficultySkull.jsx";
 import { addCoins as bankCoins } from "./core/wallet.js";
 import { isDebugMode } from "./core/debug.js";
+import { audio } from "./core/AudioEngine.js";
 
 export default function App() {
   const threeRef = useRef(null);
@@ -59,6 +60,7 @@ export default function App() {
 
   useEffect(() => {
     if (screen !== "game") {
+      audio.playMusic("musicMenu");
       return undefined;
     }
 
@@ -68,15 +70,26 @@ export default function App() {
       setGameOver(true);
       setGameOverStats(finalStats);
       bankCoins(finalStats.coins ?? 0);
+      audio.setPaused(true);
+      audio.playMusic("musicGameOver");
     };
     game.scene.onPauseChange = (paused) => {
       setIsPaused(paused);
+      if (paused) {
+        audio.play("uiPause");
+        audio.setPaused(true);
+      } else {
+        audio.setPaused(false);
+        audio.play("uiPause");
+      }
     };
     game.scene.onShowLevelUp = () => {
       setLevelUpOpen(true);
+      audio.setPaused(true);
     };
     game.scene.onShowSkillChoices = (skills) => {
       setSkillChoices(skills);
+      audio.setPaused(true);
     };
     game.scene.onBanner = (nextBanner) => {
       setBanner(nextBanner);
@@ -435,6 +448,7 @@ export default function App() {
           onChoose={(passive) => {
             gameRef.current?.scene.choosePassive(passive);
             setLevelUpOpen(false);
+            audio.setPaused(false);
           }}
         />
       )}
@@ -446,6 +460,7 @@ export default function App() {
           onChoose={(skill) => {
             gameRef.current?.scene.chooseSkill(skill);
             setSkillChoices(null);
+            audio.setPaused(false);
           }}
         />
       )}
@@ -854,7 +869,9 @@ export default function App() {
             PAUSED
           </h1>
           <button
+            onMouseEnter={() => audio.play("uiHover")}
             onClick={() => {
+              audio.play("uiClick");
               if (gameRef.current) {
                 gameRef.current.scene.togglePause();
               }
@@ -875,7 +892,11 @@ export default function App() {
             RESUME
           </button>
           <button
-            onClick={returnToMenu}
+            onMouseEnter={() => audio.play("uiHover")}
+            onClick={() => {
+              audio.play("uiClick");
+              returnToMenu();
+            }}
             style={{
               fontFamily: '"Press Start 2P", monospace',
               fontSize: "14px",
@@ -940,6 +961,7 @@ export default function App() {
             <CoinIcon size={16} /> +{gameOverStats.coins ?? 0}
           </p>
           <button
+            onMouseEnter={() => audio.play("uiHover")}
             onClick={() => location.reload()}
             style={{
               fontFamily: '"Press Start 2P", monospace',

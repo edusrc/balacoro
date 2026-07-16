@@ -17,6 +17,7 @@ import {
   isOwned,
   unlockCosmetic,
 } from "../core/wallet.js";
+import { audio } from "../core/AudioEngine.js";
 
 const TABS = [
   { id: "color", label: "COLOR" },
@@ -44,10 +45,12 @@ export default function CustomizeMenu({ onBack }) {
 
   const selectCosmetic = (kind, option) => {
     if (isOwned(kind, option.id)) {
+      audio.play("uiClick");
       update({ [kind]: option.id });
       return;
     }
     if (spendCoins(option.price)) {
+      audio.play("uiBuy");
       unlockCosmetic(kind, option.id);
       setCoins(getCoins());
       update({ [kind]: option.id });
@@ -72,6 +75,7 @@ export default function CustomizeMenu({ onBack }) {
               gap: "10px",
               opacity: owned || affordable ? 1 : 0.45,
             }}
+            onMouseEnter={() => audio.play("uiHover")}
             onClick={() => selectCosmetic(kind, option)}
           >
             <span>{option.label}</span>
@@ -161,7 +165,11 @@ export default function CustomizeMenu({ onBack }) {
               <button
                 key={t.id}
                 className={`tab-button${tab === t.id ? " active" : ""}`}
-                onClick={() => setTab(t.id)}
+                onMouseEnter={() => audio.play("uiHover")}
+                onClick={() => {
+                  audio.play("uiClick");
+                  setTab(t.id);
+                }}
               >
                 {t.label}
               </button>
@@ -248,7 +256,11 @@ export default function CustomizeMenu({ onBack }) {
           <button
             className="menu-button"
             style={{ marginTop: "36px", fontSize: "14px" }}
-            onClick={onBack}
+            onMouseEnter={() => audio.play("uiHover")}
+            onClick={() => {
+              audio.play("uiClick");
+              onBack();
+            }}
           >
             &lt; BACK
           </button>

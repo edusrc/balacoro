@@ -6,6 +6,7 @@ import { Enemy } from "../objects/Enemy.js";
 import { Mimic } from "../objects/Mimic.js";
 import { Item } from "../objects/Item.js";
 import { showDamageText } from "../components/DamageText.js";
+import { audio } from "../core/AudioEngine.js";
 import {
   PLAYER_RADIUS,
   ENEMY_SPAWN_INTERVAL,
@@ -29,6 +30,7 @@ import {
   MIMIC_HEALTH_MULTIPLIER,
   FULL_MOON_SPAWN_MULTIPLIER,
   FULL_MOON_COIN_MULTIPLIER,
+  FULL_MOON_DAMAGE_MULTIPLIER,
   BOSS_HEALTH_MULTIPLIER,
   BOSS_SPEED,
 } from "../constants.js";
@@ -103,6 +105,7 @@ export class MainScene extends THREE.Scene {
     this.coinsEarned += this.isFullMoon
       ? amount * FULL_MOON_COIN_MULTIPLIER
       : amount;
+    audio.play("coin");
   }
 
   debugAdjustDifficulty(steps) {
@@ -292,12 +295,19 @@ export class MainScene extends THREE.Scene {
     this.add(boss);
     this.enemies.push(boss);
 
-    this._announce("A BOSS HAS APPEARED", "#ff3333", "☠");
+    audio.play("bossSpawn");
+    this._announce("A BOSS HAS APPEARED", "#ff3333", "☠", "IT HUNTS YOU");
   }
 
-  _announce(text, color, icon) {
+  _announce(text, color, icon, sub) {
     if (this.onBanner) {
-      this.onBanner({ text, color, icon, key: Date.now() + Math.random() });
+      this.onBanner({
+        text,
+        color,
+        icon,
+        sub,
+        key: Date.now() + Math.random(),
+      });
     }
   }
 
@@ -358,6 +368,7 @@ export class MainScene extends THREE.Scene {
       const item = this.items[i];
       item.update(delta);
       if (item.position.distanceToSquared(this.player.position) < 1) {
+        audio.play("chestPickup");
         this.isPaused = true;
         this.clock.stop();
         this._showSkillChoices();
@@ -469,7 +480,7 @@ export class MainScene extends THREE.Scene {
           if (projectile.isCritical) {
             const hitPosition = enemy.position.clone();
             hitPosition.y += enemy.size ?? 1;
-            showDamageText(Math.floor(projectileDamage), hitPosition, true);
+            showDamageText(Math.round(projectileDamage), hitPosition, true);
           }
           projectile.hitEnemies.add(enemy);
           if (this.player.lifeSteal > 0) {
@@ -516,10 +527,16 @@ export class MainScene extends THREE.Scene {
       if (distSq < minDist * minDist && enemy.damageTimer <= 0) {
         const damage =
           (BASE_ENEMY_DAMAGE + ENEMY_DAMAGE_GROWTH * enemy.difficulty) *
-          enemy.damageMultiplier;
+          enemy.damageMultiplier *
+          (this.isFullMoon ? FULL_MOON_DAMAGE_MULTIPLIER : 1);
         const tookDamage = this.player.takeDamage(Math.floor(damage), enemy);
         if (tookDamage) {
           this._triggerScreenShake();
+          if (enemy.isBoss) {
+            audio.play("bossAttack", { position: enemy.position });
+          } else if (enemy.isMimic) {
+            audio.play("mimicHit", { position: enemy.position });
+          }
         }
         enemy.damageTimer = 1;
       }
@@ -587,16 +604,35 @@ export class MainScene extends THREE.Scene {
       this._spawnBoss(this.currentDifficulty);
     }
 
+    if (
+      !this._evilLaughPlayed &&
+      this.currentDifficulty >=
+        (audio.repository.get("evilLaugh")?.skullPowerTrigger ?? 17)
+    ) {
+      this._evilLaughPlayed = true;
+      audio.play("evilLaugh");
+    }
+
     if (this.isFullMoon && !this._fullMoonAnnounced) {
       this._fullMoonAnnounced = true;
-      this._announce("BLOOD MOON RISES", "#ff4444", "🌕");
+      this._announce(
+        "BLOOD MOON RISES",
+        "#ff4444",
+        "🌕",
+        "ENEMIES ARE FASTER AND STRONGER"
+      );
     }
     if (!this.isFullMoon) {
       this._fullMoonAnnounced = false;
     }
     if (this.isMist && !this._mistAnnounced) {
       this._mistAnnounced = true;
-      this._announce("THE MIST THICKENS", "#aabbcc", "🌫");
+      this._announce(
+        "THE MIST THICKENS",
+        "#aabbcc",
+        "🌫",
+        "RED EYES IN THE FOG"
+      );
     }
     if (!this.isMist) {
       this._mistAnnounced = false;

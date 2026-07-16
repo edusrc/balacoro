@@ -66,14 +66,30 @@ function mulberry32(state) {
   };
 }
 
+export const DIFFICULTY_LAP_LENGTH = 6;
+export const DIFFICULTY_COLOR_LAPS = 5;
+const DIFFICULTY_FADE_LEVELS = 5;
+const DIFFICULTY_LAPS_END = DIFFICULTY_LAP_LENGTH * DIFFICULTY_COLOR_LAPS;
+export const DIFFICULTY_COLOR_MAX_LEVEL =
+  DIFFICULTY_LAPS_END + DIFFICULTY_FADE_LEVELS;
+
 function difficultyColor(level) {
   const color = new THREE.Color();
-  if (level <= 5) {
-    color.setHSL(0.66 * (1 - level / 5), 1, 0.5);
-  } else if (level <= 10) {
-    color.setHSL(0, 1, 0.5 - ((level - 5) / 5) * 0.28);
+  const clamped = Math.max(level, 0);
+  if (clamped < DIFFICULTY_LAPS_END) {
+    const lap = Math.floor(clamped / DIFFICULTY_LAP_LENGTH);
+    const step = clamped % DIFFICULTY_LAP_LENGTH;
+    color.setHSL(
+      0.66 * (1 - step / (DIFFICULTY_LAP_LENGTH - 1)),
+      1,
+      0.5 - lap * 0.08
+    );
   } else {
-    color.setHSL(((level - 10) * 0.09) % 1, 1, 0.3);
+    const fade = Math.min(
+      (clamped - DIFFICULTY_LAPS_END) / DIFFICULTY_FADE_LEVELS,
+      1
+    );
+    color.setHSL(0, 1, 0.13 * (1 - fade));
   }
   return color;
 }

@@ -28,7 +28,7 @@ export const PLAYER_INITIAL_DAMAGE = 1;
 export const PLAYER_INITIAL_ATTACK_SPEED = 1;
 export const PLAYER_INITIAL_SHARPENING = 1;
 export const PLAYER_INITIAL_HEALTH_REGEN = 0;
-export const PLAYER_INITIAL_CRITICAL_DAMAGE = 0;
+export const PLAYER_INITIAL_CRITICAL_DAMAGE = 0.5;
 export const PLAYER_INITIAL_CRITICAL_CHANCE = 0;
 export const PLAYER_INITIAL_LIFE_STEAL = 0;
 export const INITIAL_PLAYER_SKILLS = {
@@ -158,7 +158,7 @@ export const ELITE_SPEED_MULTIPLIER = 1.15;
 export const ELITE_XP_MULTIPLIER = 3;
 export const ELITE_COIN_MULTIPLIER = 2;
 
-export const LEVELS_PER_ENEMY_POWER = 5;
+export const LEVELS_PER_ENEMY_POWER = 10;
 export const ENEMY_BIOME_BIAS_CHANCE = 0.4;
 export const ENEMY_SOLID_CHECK_INTERVAL = 1.5;
 export const ENEMY_DEATH_DURATION = 0.4;
@@ -198,6 +198,8 @@ export const MIMIC_COIN_MULTIPLIER = 5;
 export const FULL_MOON_NIGHT_INTERVAL = 3;
 export const FULL_MOON_SPAWN_MULTIPLIER = 2;
 export const FULL_MOON_COIN_MULTIPLIER = 2;
+export const FULL_MOON_SPEED_MULTIPLIER = 1.35;
+export const FULL_MOON_DAMAGE_MULTIPLIER = 1.25;
 
 export const DEFAULT_FOG_DENSITY = 0.01;
 export const MIST_FOG_DENSITY = 0.05;
@@ -207,11 +209,12 @@ export const MIST_DURATION = { min: 30, max: 60 };
 export const RAIN_CHECK_INTERVAL = { min: 45, max: 90 };
 export const RAIN_CHANCE = 0.4;
 export const RAIN_DURATION = { min: 25, max: 50 };
-export const WEATHER_FADE_SPEED = 1.2;
+export const WEATHER_FADE_SPEED = 0.45;
 
 export const MIMIC_WAKE_GROW_TIME = 0.35;
 
-export const CRITICAL_FLASH_DURATION = 0.15;
-export const CRITICAL_FLASH_COLOR = 0xffaa00;
+export const CRITICAL_FLASH_DURATION = 0.18;
+export const CRITICAL_FLASH_COLOR = 0xff2222;
+export const CRITICAL_PUNCH_SCALE = 0.3;
 
 export const BANNER_DURATION = 3.5;

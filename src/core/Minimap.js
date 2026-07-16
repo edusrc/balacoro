@@ -5,7 +5,7 @@ const BIOME_COLORS = {
   snow: "#cfe6f2",
 };
 
-import { getDifficultyColorStyle } from "../objects/MonsterGenome.js";
+import { getDifficultyColor } from "../objects/MonsterGenome.js";
 
 export class Minimap {
   constructor(container, range = 60) {
@@ -69,7 +69,8 @@ export class Minimap {
           centerX,
           centerY,
           scale,
-          maximumRadius
+          maximumRadius,
+          `#${getDifficultyColor(enemy.difficulty).getHexString()}`
         );
       } else {
         this.drawEntityDot(
@@ -81,7 +82,7 @@ export class Minimap {
           maximumRadius,
           enemy.isElite
             ? `hsl(${(performance.now() * 0.2) % 360}, 100%, 60%)`
-            : getDifficultyColorStyle(enemy.difficulty)
+            : `#${getDifficultyColor(enemy.difficulty).getHexString()}`
         );
       }
     }
@@ -181,6 +182,9 @@ export class Minimap {
     );
     this.renderingContext.fillStyle = color;
     this.renderingContext.fill();
+    this.renderingContext.lineWidth = 1;
+    this.renderingContext.strokeStyle = "rgba(255, 255, 255, 0.55)";
+    this.renderingContext.stroke();
   }
 
   drawBossSkull(
@@ -189,7 +193,8 @@ export class Minimap {
     centerX,
     centerY,
     scale,
-    maximumRadius
+    maximumRadius,
+    color
   ) {
     const offsetX = (targetPosition.x - playerPosition.x) * scale;
     const offsetZ = (targetPosition.z - playerPosition.z) * scale;
@@ -206,8 +211,11 @@ export class Minimap {
 
     this.renderingContext.beginPath();
     this.renderingContext.arc(positionX, positionY, 8, 0, Math.PI * 2);
-    this.renderingContext.fillStyle = "rgba(255, 51, 51, 0.7)";
+    this.renderingContext.fillStyle = color;
     this.renderingContext.fill();
+    this.renderingContext.lineWidth = 1.5;
+    this.renderingContext.strokeStyle = "rgba(255, 255, 255, 0.75)";
+    this.renderingContext.stroke();
 
     this.renderingContext.font = "bold 11px sans-serif";
     this.renderingContext.textAlign = "center";

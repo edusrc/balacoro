@@ -7,6 +7,7 @@ import {
   MIMIC_COIN_MULTIPLIER,
   MIMIC_WAKE_GROW_TIME,
 } from "../constants.js";
+import { audio } from "../core/AudioEngine.js";
 
 const bodyGeometry = new THREE.BoxGeometry(0.9, 0.55, 0.65);
 const lidGeometry = new THREE.BoxGeometry(0.94, 0.26, 0.69);
@@ -131,6 +132,7 @@ export class Mimic extends Enemy {
     this.bodyScale = new THREE.Vector3(this.size, this.size, this.size);
 
     this.coinReward = Math.round(this.coinReward * MIMIC_COIN_MULTIPLIER);
+    this.isMimic = true;
     this.isDormant = true;
     this.chompTime = 0;
     this.baseY = spawnPosition.y;
@@ -141,6 +143,7 @@ export class Mimic extends Enemy {
   wake() {
     this.isDormant = false;
     this.wakeTime = 0;
+    audio.play("mimicAwake", { position: this.position });
     for (const part of this.mouthParts) {
       part.visible = true;
     }

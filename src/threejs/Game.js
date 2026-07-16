@@ -8,6 +8,7 @@ import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { setFloatingTextCamera } from "../components/createFloatingText.js";
 import { isDebugMode } from "../core/debug.js";
+import { audio } from "../core/AudioEngine.js";
 import {
   DAY_DURATION,
   NIGHT_DURATION,
@@ -279,12 +280,15 @@ export class Game {
       }
     }
 
-    const weights = this.scene.tileManager?.getBiomeWeights(
+    const weights = this.scene.tileManager?.getSmoothBiomeWeights(
       player.position.x,
       player.position.z
-    ) ?? { forest: 0, snow: 0 };
+    ) ?? { forest: 0, snow: 0, city: 0, desert: 0 };
+    this.biomeWeights = weights;
 
-    const rainTarget = state.rainActive ? weights.forest : 0;
+    const rainTarget = state.rainActive
+      ? Math.min(weights.forest + weights.city, 1)
+      : 0;
     const snowTarget = weights.snow;
     const fadeStep = Math.min(deltaSeconds * WEATHER_FADE_SPEED, 1);
     this.rainOpacity += (rainTarget - this.rainOpacity) * fadeStep;
@@ -316,6 +320,75 @@ export class Game {
         ? this.bloodFogColor
         : this.defaultFogColor;
     fog.color.lerp(targetColor, Math.min(deltaSeconds, 1));
+  }
+
+  _syncAudio(deltaSeconds) {
+    audio.setListenerPosition(this.scene.player.position);
+    audio.update(deltaSeconds);
+
+    const phase = this.isNight
+      ? this.isFullMoon
+        ? "bloodmoon"
+        : "night"
+      : "day";
+    if (phase !== this._audioPhase) {
+      const isFirstSync = this._audioPhase === undefined;
+      this._audioPhase = phase;
+
+      if (phase === "day") {
+        if (!isFirstSync) {
+          audio.play("eventDay");
+        }
+        audio.playMusic("musicDay");
+      } else if (phase === "night") {
+        audio.play("eventNightfall");
+        audio.playMusic("musicNight");
+      } else {
+        audio.play("eventBloodMoon");
+        audio.playMusic("musicBloodMoon");
+      }
+
+      audio.setScheduler("ambienceNight", phase === "night");
+      audio.setScheduler("ambienceBloodmoon", phase === "bloodmoon");
+      audio.setScheduler("creepyEffectBloodmoon", phase === "bloodmoon");
+    }
+
+    const mistActive = this.weatherState.mistActive;
+    if (mistActive !== this._audioMist) {
+      this._audioMist = mistActive;
+      if (mistActive) {
+        audio.play("eventMist");
+        audio.startLoop("ambienceMist");
+        audio.duckMusic(true);
+      } else {
+        audio.stopLoop("ambienceMist");
+        audio.duckMusic(false);
+      }
+      audio.setScheduler("creepyEffectMist", mistActive);
+    }
+
+    const raining = this.rainOpacity > 0.05;
+    if (raining) {
+      audio.startLoop("ambienceRain");
+      audio.setLoopVolume("ambienceRain", this.rainOpacity);
+    } else {
+      audio.stopLoop("ambienceRain");
+    }
+    audio.setScheduler("thunder", raining);
+
+    const snowing = this.snowOpacity > 0.05;
+    if (snowing) {
+      audio.startLoop("ambienceSnowWind");
+      audio.setLoopVolume("ambienceSnowWind", this.snowOpacity);
+    } else {
+      audio.stopLoop("ambienceSnowWind");
+    }
+    audio.setScheduler("snowWindGust", snowing);
+
+    audio.setScheduler(
+      "desertWind",
+      (this.biomeWeights?.desert ?? 0) > 0.4
+    );
   }
 
   _dropPoints(points, fallStep, driftDelta) {
@@ -459,6 +532,7 @@ export class Game {
     this.updateSunPosition(this.totalElapsedTime);
     this.scene.isNight = this.isNight;
     this.updateWeather(this.scene.isPaused ? 0 : deltaMs / 1000);
+    this._syncAudio(this.scene.isPaused ? 0 : deltaMs / 1000);
     this.minimap.update(
       this.scene.player,
       this.scene.enemies,
@@ -486,6 +560,7 @@ export class Game {
   };
 
   dispose() {
+    audio.stopAll();
     cancelAnimationFrame(this.animationFrameId);
     window.removeEventListener("resize", this.onWindowResize);
     this.container.removeEventListener("mousemove", this.onMouseMove);

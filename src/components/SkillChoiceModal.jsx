@@ -1,4 +1,5 @@
 import React from "react";
+import { audio } from "../core/AudioEngine.js";
 
 const SKILL_ICONS = {
   dash: "./assets/imgs/dash.png",
@@ -121,7 +122,11 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
                 key={skill}
                 className="skill-card"
                 style={{ "--accent": accent }}
-                onClick={() => onChoose(skill)}
+                onMouseEnter={() => audio.play("uiHover")}
+                onClick={() => {
+                  audio.play("skillSelect");
+                  onChoose(skill);
+                }}
               >
                 <img
                   src={SKILL_ICONS[skill]}
