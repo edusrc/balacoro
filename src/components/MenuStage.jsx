@@ -164,13 +164,13 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
       const delta = clock.getDelta();
-      const t = clock.elapsedTime;
+      const elapsedTime = clock.elapsedTime;
       cube.rotation.y += delta * 0.9;
-      cube.position.y = 0.8 + Math.sin(t * 1.6) * 0.1;
+      cube.position.y = 0.8 + Math.sin(elapsedTime * 1.6) * 0.1;
       shot.position.set(
-        CUBE_X + Math.cos(t * 1.8) * 1.4,
-        1 + Math.sin(t * 2.7) * 0.2,
-        Math.sin(t * 1.8) * 1.4
+        CUBE_X + Math.cos(elapsedTime * 1.8) * 1.4,
+        1 + Math.sin(elapsedTime * 2.7) * 0.2,
+        Math.sin(elapsedTime * 1.8) * 1.4
       );
       shot.rotation.x += delta * 3;
       shot.rotation.y += delta * 2;
@@ -200,7 +200,9 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
 
   useEffect(() => {
     const cube = cubeRef.current;
-    if (!cube) return;
+    if (!cube) {
+      return;
+    }
 
     cube.material.color.set(color);
     cube.material.emissive.set(color).multiplyScalar(0.18);
@@ -215,7 +217,9 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
       createGlasses(glasses),
       createEars(ears),
     ]) {
-      if (!accessory) continue;
+      if (!accessory) {
+        continue;
+      }
       accessory.traverse((child) => {
         child.castShadow = true;
       });
@@ -240,7 +244,9 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
 
 function disposeAccessories(accessoriesRef, cube) {
   for (const accessory of accessoriesRef.current) {
-    if (cube) cube.remove(accessory);
+    if (cube) {
+      cube.remove(accessory);
+    }
     accessory.traverse((child) => {
       if (child.isMesh) {
         child.geometry.dispose();

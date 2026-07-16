@@ -39,6 +39,7 @@ export class Player extends THREE.Object3D {
     this.speed = PLAYER_INITIAL_SPEED;
     this.damage = PLAYER_INITIAL_DAMAGE;
     this.attackSpeed = PLAYER_INITIAL_ATTACK_SPEED;
+    this.isInvincible = false;
     this.attackCooldown = 0;
     this.lastDirection = new THREE.Vector3(1, 0, 0);
     this.freezeExplosionTimer = 0;
@@ -91,7 +92,9 @@ export class Player extends THREE.Object3D {
       createGlasses(customization.glasses),
       createEars(customization.ears),
     ]) {
-      if (!accessory) continue;
+      if (!accessory) {
+        continue;
+      }
       accessory.position.y = 0.35;
       accessory.traverse((child) => {
         child.castShadow = true;
@@ -177,7 +180,7 @@ export class Player extends THREE.Object3D {
     if (this.dashFlashTime > 0) {
       this.dashFlashTime -= delta;
       if (this.dashFlashTime <= 0) {
-        const mesh = this.children.find((c) => c.isMesh);
+        const mesh = this.children.find((child) => child.isMesh);
         if (mesh && mesh.material) {
           if (this.glowing) {
             mesh.material.emissive.copy(this.glowColor);
@@ -318,16 +321,16 @@ export class Player extends THREE.Object3D {
     }
 
     if (this.freezeRing.material) {
-      const mat = this.freezeRing.material;
-      const originalColor = mat.color.clone();
-      const originalOpacity = mat.opacity;
+      const ringMaterial = this.freezeRing.material;
+      const originalColor = ringMaterial.color.clone();
+      const originalOpacity = ringMaterial.opacity;
 
-      mat.color.set(0x00ffff);
-      mat.opacity = 0.6;
+      ringMaterial.color.set(0x00ffff);
+      ringMaterial.opacity = 0.6;
 
       setTimeout(() => {
-        mat.color.copy(originalColor);
-        mat.opacity = originalOpacity;
+        ringMaterial.color.copy(originalColor);
+        ringMaterial.opacity = originalOpacity;
       }, 200);
     }
 
@@ -345,7 +348,9 @@ export class Player extends THREE.Object3D {
     const damage = skill.damage ?? 1;
 
     const parent = this.parent;
-    if (!parent || !parent.enemies) return;
+    if (!parent || !parent.enemies) {
+      return;
+    }
 
     const circleGeometry = new THREE.RingGeometry(0.05, 0.1, 64);
     const circleMaterial = new THREE.MeshBasicMaterial({
@@ -424,7 +429,7 @@ export class Player extends THREE.Object3D {
       }
     }
 
-    const mesh = this.children.find((c) => c.isMesh);
+    const mesh = this.children.find((child) => child.isMesh);
     if (mesh && mesh.material) {
       mesh.material.emissive = new THREE.Color(0xffffff);
       mesh.material.emissiveIntensity = 2;
@@ -435,7 +440,7 @@ export class Player extends THREE.Object3D {
   }
 
   createDashGhost() {
-    const mesh = this.children.find((c) => c.isMesh);
+    const mesh = this.children.find((child) => child.isMesh);
     if (!mesh) {
       return;
     }
@@ -482,8 +487,10 @@ export class Player extends THREE.Object3D {
     }
   }
   createForceFieldVisual() {
-    const mesh = this.children.find((c) => c.isMesh);
-    if (!mesh) return;
+    const mesh = this.children.find((child) => child.isMesh);
+    if (!mesh) {
+      return;
+    }
 
     const outlineMaterial = new THREE.MeshBasicMaterial({
       color: this.customColor,
@@ -501,7 +508,9 @@ export class Player extends THREE.Object3D {
   }
 
   updateForceFieldVisual() {
-    const outline = this.children.find((obj) => obj.name === "forceField");
+    const outline = this.children.find(
+      (child) => child.name === "forceField"
+    );
     if (!outline || !outline.material) {
       return;
     }
@@ -524,7 +533,8 @@ export class Player extends THREE.Object3D {
       damage,
       this.projectGlowing,
       this.sharpening,
-      this.projectileColor
+      this.projectileColor,
+      isCritical
     );
     if (this.parent) {
       this.parent.add(projectile);
@@ -580,7 +590,7 @@ export class Player extends THREE.Object3D {
 
       if (skillName === "glowing") {
         this.glowing = true;
-        const mesh = this.children.find((c) => c.isMesh);
+        const mesh = this.children.find((child) => child.isMesh);
         if (mesh && mesh.material) {
           mesh.material.emissive = this.glowColor.clone();
           mesh.material.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
@@ -673,11 +683,22 @@ export class Player extends THREE.Object3D {
     }
   }
 
+  debugGodMode() {
+    this.damage = 100000;
+    this.attackSpeed = 20;
+    this.isInvincible = true;
+    this.health = this.maxHealth;
+  }
+
   takeDamage(amount, source) {
     const thornsSkill = this.active_skills.thorns;
 
     if (thornsSkill?.enabled && source?.hit) {
       source.hit(thornsSkill.damage);
+    }
+
+    if (this.isInvincible) {
+      return false;
     }
 
     if (this.shieldCount > 0) {

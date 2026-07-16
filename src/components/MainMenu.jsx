@@ -13,10 +13,18 @@ export default function MainMenu({ onPlay, onCustomize, onMonsterLab }) {
   const [customization] = useState(loadCustomization);
 
   const handleSelect = (item) => {
-    if (item.disabled) return;
-    if (item.id === "play") onPlay();
-    if (item.id === "customize") onCustomize();
-    if (item.id === "monsterlab") onMonsterLab();
+    if (item.disabled) {
+      return;
+    }
+    if (item.id === "play") {
+      onPlay();
+    }
+    if (item.id === "customize") {
+      onCustomize();
+    }
+    if (item.id === "monsterlab") {
+      onMonsterLab();
+    }
   };
 
   return (

@@ -5,16 +5,58 @@ import {
   generateGenome,
   buildMonsterBody,
   getBodyMaterial,
+  eyeDayMaterial,
+  eyeNightMaterial,
   ARCHETYPE_NAMES,
 } from "../objects/MonsterGenome.js";
+import {
+  buildMimicBody,
+  setMimicAwakeColor,
+  MIMIC_DISGUISE_COLOR,
+  MIMIC_LID_DISGUISE_COLOR,
+} from "../objects/Mimic.js";
+import {
+  BOSS_SIZE_MULTIPLIER,
+  BOSS_HEALTH_MULTIPLIER,
+  BOSS_DAMAGE_MULTIPLIER,
+  BOSS_XP_MULTIPLIER,
+  BOSS_SPECIAL_COOLDOWN,
+  BOSS_SPECIAL_RANGE,
+  BOSS_TELEGRAPH_TIME,
+  BOSS_CHARGE_TIME,
+  BOSS_CHARGE_SPEED_MULTIPLIER,
+  BOSS_SUMMON_COUNT,
+  MIMIC_HEALTH_MULTIPLIER,
+  MIMIC_COIN_MULTIPLIER,
+  MIMIC_WAKE_DISTANCE,
+} from "../constants.js";
 
 const PIXEL_SCALE = 3;
 const STAGE_X = 2.2;
 
-function MonsterStage({ genome, difficulty }) {
+const eliteAuraGeometry = new THREE.SphereGeometry(0.72, 12, 10);
+const eliteAuraMaterial = new THREE.MeshBasicMaterial({
+  color: 0xffd23e,
+  transparent: true,
+  opacity: 0.16,
+  side: THREE.BackSide,
+  depthWrite: false,
+});
+
+const MONSTER_TYPES = [
+  { id: "enemy", label: "ENEMY" },
+  { id: "boss", label: "BOSS" },
+  { id: "mimic", label: "MIMIC" },
+];
+
+const BEAM_HEIGHT = 4.6;
+
+function useStageBase() {
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
-  const monsterRef = useRef(null);
+  const rendererRef = useRef(null);
+  const cameraRef = useRef(null);
+  const lightsRef = useRef(null);
 
   useEffect(() => {
     const renderer = new THREE.WebGLRenderer({
@@ -22,6 +64,7 @@ function MonsterStage({ genome, difficulty }) {
       antialias: false,
     });
     renderer.shadowMap.enabled = true;
+    rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x08080e);
@@ -31,6 +74,7 @@ function MonsterStage({ genome, difficulty }) {
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 60);
     camera.position.set(0, 2.6, 7);
     camera.lookAt(1.1, 1, 0);
+    cameraRef.current = camera;
 
     const resize = () => {
       const width = window.innerWidth;
@@ -61,11 +105,11 @@ function MonsterStage({ genome, difficulty }) {
     scene.add(spot);
     scene.add(spot.target);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.08));
+    const ambient = new THREE.AmbientLight(0xffffff, 0.1);
+    scene.add(ambient);
 
-    const beamHeight = 4.6;
     const beam = new THREE.Mesh(
-      new THREE.ConeGeometry(2, beamHeight, 32, 1, true),
+      new THREE.ConeGeometry(2, BEAM_HEIGHT, 32, 1, true),
       new THREE.MeshBasicMaterial({
         color: 0xfff2c0,
         transparent: true,
@@ -75,22 +119,53 @@ function MonsterStage({ genome, difficulty }) {
         blending: THREE.AdditiveBlending,
       })
     );
-    beam.position.set(STAGE_X, beamHeight / 2 + 0.01, 0);
+    beam.position.set(STAGE_X, BEAM_HEIGHT / 2 + 0.01, 0);
     scene.add(beam);
+
+    lightsRef.current = { spot, beam, ambient };
+
+    return () => {
+      window.removeEventListener("resize", resize);
+      ground.geometry.dispose();
+      ground.material.dispose();
+      beam.geometry.dispose();
+      beam.material.dispose();
+      renderer.dispose();
+      sceneRef.current = null;
+      rendererRef.current = null;
+      cameraRef.current = null;
+      lightsRef.current = null;
+    };
+  }, []);
+
+  return { canvasRef, sceneRef, rendererRef, cameraRef, lightsRef };
+}
+
+function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
+  const { canvasRef, sceneRef, rendererRef, cameraRef, lightsRef } = useStageBase();
+  const monsterRef = useRef(null);
+  const eliteStateRef = useRef({ hue: 0 });
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    if (!scene || !renderer || !camera) {
+      return undefined;
+    }
 
     const clock = new THREE.Clock();
     let animationFrameId;
-
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
       const delta = clock.getDelta();
-      const t = clock.elapsedTime;
+      const elapsedTime = clock.elapsedTime;
 
       const monster = monsterRef.current;
       if (monster) {
         monster.group.rotation.y += delta * 0.6;
         for (const part of monster.animatedParts) {
-          const swing = Math.sin(t * 7 + part.phase);
+          const swing = Math.sin(elapsedTime * 7 + part.phase);
           if (part.kind === "leg") {
             part.mesh.rotation.x = swing * 0.6;
           } else if (part.kind === "tail") {
@@ -100,48 +175,204 @@ function MonsterStage({ genome, difficulty }) {
             part.mesh.rotation.z = part.baseRotZ + swing * 0.18;
           }
         }
+        if (monster.eliteAura) {
+          eliteStateRef.current.hue = (eliteStateRef.current.hue + delta * 0.35) % 1;
+          monster.material.color.setHSL(eliteStateRef.current.hue, 1, 0.55);
+          monster.material.emissive.setHSL(eliteStateRef.current.hue, 1, 0.35);
+          monster.eliteAura.material.color.setHSL(
+            (eliteStateRef.current.hue + 0.15) % 1,
+            1,
+            0.6
+          );
+        }
       }
 
       renderer.render(scene, camera);
     };
     animate();
 
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-      window.removeEventListener("resize", resize);
-      if (monsterRef.current) {
-        scene.remove(monsterRef.current.group);
-        monsterRef.current.coreGeometry.dispose();
-        monsterRef.current = null;
-      }
-      sceneRef.current = null;
-      ground.geometry.dispose();
-      ground.material.dispose();
-      beam.geometry.dispose();
-      beam.material.dispose();
-      renderer.dispose();
-    };
-  }, []);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [sceneRef, rendererRef, cameraRef]);
+
+  useEffect(() => {
+    const camera = cameraRef.current;
+    if (!camera) {
+      return;
+    }
+    if (previewScale > 1) {
+      camera.position.set(0, 5.5, 16);
+      camera.lookAt(1.1, 2.6, 0);
+    } else {
+      camera.position.set(0, 2.6, 7);
+      camera.lookAt(1.1, 1, 0);
+    }
+  }, [previewScale, cameraRef]);
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene) return;
+    if (!scene) {
+      return;
+    }
 
     if (monsterRef.current) {
       scene.remove(monsterRef.current.group);
       monsterRef.current.coreGeometry.dispose();
+      monsterRef.current.material.dispose();
+      if (monsterRef.current.eliteAura) {
+        monsterRef.current.eliteAura.material.dispose();
+      }
     }
 
-    const body = buildMonsterBody(genome, getBodyMaterial(difficulty));
+    const material = getBodyMaterial(difficulty, elite).clone();
+    const body = buildMonsterBody(genome, material);
+
+    let eliteAura = null;
+    if (elite) {
+      eliteAura = new THREE.Mesh(eliteAuraGeometry, eliteAuraMaterial.clone());
+      body.group.add(eliteAura);
+    }
+    eliteStateRef.current.hue = Math.random();
+
+    for (const eye of body.eyes) {
+      eye.material = redEyes ? eyeNightMaterial : eyeDayMaterial;
+    }
+
+    const scale = genome.sizeMult * previewScale;
+    const centerY = 0.4 + scale * 0.5;
     body.group.scale.set(
-      genome.stretch.x * genome.sizeMult,
-      genome.stretch.y * genome.sizeMult,
-      genome.stretch.z * genome.sizeMult
+      genome.stretch.x * scale,
+      genome.stretch.y * scale,
+      genome.stretch.z * scale
     );
-    body.group.position.set(STAGE_X, 0.4 + genome.sizeMult * 0.5, 0);
+    body.group.position.set(STAGE_X, centerY, 0);
     scene.add(body.group);
-    monsterRef.current = body;
-  }, [genome, difficulty]);
+    monsterRef.current = { ...body, material, eliteAura };
+
+    const lights = lightsRef.current;
+    if (lights) {
+      const rigHeight = centerY + scale * 1.6 + 2;
+      lights.spot.position.set(STAGE_X, rigHeight, 0);
+      lights.spot.target.position.set(STAGE_X, centerY, 0);
+      lights.spot.target.updateMatrixWorld();
+      lights.spot.distance = rigHeight + scale * 4;
+      const beamScale = rigHeight / BEAM_HEIGHT;
+      lights.beam.scale.setScalar(beamScale);
+      lights.beam.position.set(STAGE_X, rigHeight / 2 + 0.01, 0);
+    }
+  }, [genome, difficulty, elite, redEyes, previewScale, sceneRef, lightsRef]);
+
+  useEffect(
+    () => () => {
+      const scene = sceneRef.current;
+      if (scene && monsterRef.current) {
+        scene.remove(monsterRef.current.group);
+        monsterRef.current.coreGeometry.dispose();
+        monsterRef.current.material.dispose();
+        if (monsterRef.current.eliteAura) {
+          monsterRef.current.eliteAura.material.dispose();
+        }
+      }
+    },
+    [sceneRef]
+  );
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        imageRendering: "pixelated",
+      }}
+    />
+  );
+}
+
+function MimicStage({ difficulty, awake }) {
+  const { canvasRef, sceneRef, rendererRef, cameraRef } = useStageBase();
+  const mimicRef = useRef(null);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    if (!scene || !renderer || !camera) {
+      return undefined;
+    }
+
+    const clock = new THREE.Clock();
+    let animationFrameId;
+    const animate = () => {
+      animationFrameId = requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const elapsedTime = clock.elapsedTime;
+
+      const mimic = mimicRef.current;
+      if (mimic) {
+        if (!mimic.awake) {
+          mimic.group.rotation.y += delta;
+          mimic.group.position.y = 0.4 + Math.sin(elapsedTime * 2) * 0.08;
+        } else {
+          mimic.group.rotation.y = Math.sin(elapsedTime * 0.5) * 0.3;
+          mimic.group.position.y = 0.4;
+          mimic.lidPivot.rotation.x = -(
+            0.35 + Math.abs(Math.sin(elapsedTime * 6)) * 0.55
+          );
+          mimic.tongue.rotation.x = 0.25 + Math.sin(elapsedTime * 9) * 0.12;
+        }
+      }
+
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [sceneRef, rendererRef, cameraRef]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) {
+      return;
+    }
+
+    if (mimicRef.current) {
+      scene.remove(mimicRef.current.group);
+      mimicRef.current.bodyMaterial.dispose();
+      mimicRef.current.lidMaterial.dispose();
+    }
+
+    const body = buildMimicBody();
+    body.group.position.set(STAGE_X, 0.4, 0);
+    body.group.scale.setScalar(1.6);
+
+    if (awake) {
+      for (const part of body.mouthParts) {
+        part.visible = true;
+      }
+      setMimicAwakeColor(body.bodyMaterial, body.lidMaterial, difficulty);
+    } else {
+      body.bodyMaterial.color.set(MIMIC_DISGUISE_COLOR);
+      body.lidMaterial.color.set(MIMIC_LID_DISGUISE_COLOR);
+      body.bodyMaterial.emissive.set(0x000000);
+    }
+
+    scene.add(body.group);
+    mimicRef.current = { ...body, awake };
+  }, [difficulty, awake, sceneRef]);
+
+  useEffect(
+    () => () => {
+      const scene = sceneRef.current;
+      if (scene && mimicRef.current) {
+        scene.remove(mimicRef.current.group);
+        mimicRef.current.bodyMaterial.dispose();
+        mimicRef.current.lidMaterial.dispose();
+      }
+    },
+    [sceneRef]
+  );
 
   return (
     <canvas
@@ -179,24 +410,79 @@ function LabSlider({ label, value, min, max, step, onChange }) {
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        style={{ accentColor: "#ffee00", width: "200px" }}
+        style={{ accentColor: "#ffee00", width: "100%" }}
       />
     </label>
   );
 }
 
+function LabCheckbox({ label, checked, onChange }) {
+  return (
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        fontSize: "10px",
+        color: "#ccc",
+        letterSpacing: "1px",
+        cursor: "pointer",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        style={{ accentColor: "#ffee00", width: "16px", height: "16px" }}
+      />
+      {label}
+    </label>
+  );
+}
+
+const BOSS_ARCHETYPES = ["tank", "brute"];
+
 export default function MonsterLabMenu({ onBack }) {
-  const [archetype, setArchetype] = useState("random");
+  const [monsterType, setMonsterType] = useState("enemy");
+  const [archetype, setArchetype] = useState(null);
   const [difficulty, setDifficulty] = useState(0);
+  const [elite, setElite] = useState(false);
+  const [redEyes, setRedEyes] = useState(false);
   const [genome, setGenome] = useState(() => generateGenome(false));
+  const [mimicAwake, setMimicAwake] = useState(false);
+
+  const isBossType = monsterType === "boss";
+  const availableArchetypes = isBossType
+    ? BOSS_ARCHETYPES
+    : ARCHETYPE_NAMES;
 
   const regenerate = (forced = archetype) => {
-    setGenome(generateGenome(false, forced === "random" ? undefined : forced));
+    setGenome(generateGenome(isBossType, forced ?? undefined));
+  };
+
+  const pickArchetypeTab = (name) => {
+    const next = archetype === name ? null : name;
+    setArchetype(next);
+    setGenome(generateGenome(isBossType, next ?? undefined));
+  };
+
+  const switchMonsterType = (type) => {
+    setMonsterType(type);
+    if (type === "mimic") {
+      return;
+    }
+    setArchetype(null);
+    setGenome(generateGenome(type === "boss", undefined));
+    if (type === "boss") {
+      setElite(false);
+    }
   };
 
   const patchGenome = (patch) => setGenome({ ...genome, ...patch });
   const patchParts = (patch) =>
     setGenome({ ...genome, parts: { ...genome.parts, ...patch } });
+
+  const previewScale = isBossType ? BOSS_SIZE_MULTIPLIER : 1;
 
   return (
     <div
@@ -211,7 +497,17 @@ export default function MonsterLabMenu({ onBack }) {
     >
       <style>{MENU_CSS}</style>
 
-      <MonsterStage genome={genome} difficulty={difficulty} />
+      {monsterType === "mimic" ? (
+        <MimicStage difficulty={difficulty} awake={mimicAwake} />
+      ) : (
+        <MonsterStage
+          genome={genome}
+          difficulty={difficulty}
+          elite={elite && !isBossType}
+          redEyes={redEyes}
+          previewScale={previewScale}
+        />
+      )}
 
       <div
         style={{
@@ -219,19 +515,18 @@ export default function MonsterLabMenu({ onBack }) {
           inset: 0,
           display: "flex",
           flexDirection: "column",
-          justifyContent: "center",
-          gap: "18px",
-          paddingLeft: "6%",
+          padding: "3vh 4vw",
+          boxSizing: "border-box",
           pointerEvents: "none",
         }}
       >
         <h1
           style={{
-            fontSize: "min(3.5vw, 38px)",
-            letterSpacing: "6px",
+            fontSize: "min(2.6vw, 28px)",
+            letterSpacing: "5px",
             color: "#ffee00",
             textShadow: "0 0 24px rgba(255, 238, 0, 0.5), 4px 4px 0 #7a5c00",
-            margin: 0,
+            margin: "0 0 2vh",
           }}
         >
           MONSTER LAB
@@ -240,139 +535,270 @@ export default function MonsterLabMenu({ onBack }) {
         <div
           style={{
             pointerEvents: "auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: "14px",
-            maxHeight: "70vh",
-            overflowY: "auto",
-            paddingRight: "12px",
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(150px, 220px))",
+            columnGap: "22px",
+            rowGap: "9px",
+            alignContent: "start",
+            alignItems: "start",
           }}
         >
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {["random", ...ARCHETYPE_NAMES].map((name) => (
+          <div
+            style={{
+              gridColumn: "1 / -1",
+              display: "flex",
+              gap: "10px",
+              flexWrap: "wrap",
+            }}
+          >
+            {MONSTER_TYPES.map((type) => (
               <button
-                key={name}
-                className={`tab-button${archetype === name ? " active" : ""}`}
-                onClick={() => {
-                  setArchetype(name);
-                  regenerate(name);
-                }}
+                key={type.id}
+                className={`tab-button${
+                  monsterType === type.id ? " active" : ""
+                }`}
+                onClick={() => switchMonsterType(type.id)}
               >
-                {name.toUpperCase()}
+                {type.label}
               </button>
             ))}
           </div>
 
-          <div
-            style={{
-              fontSize: "9px",
-              color: "#888",
-              letterSpacing: "1px",
-              lineHeight: "1.8",
-            }}
-          >
-            TYPE: {genome.archetype.toUpperCase()}
-            <br />
-            SPD x{genome.speedMult.toFixed(2)} | HP x
-            {genome.healthMult.toFixed(2)} | DMG x
-            {genome.damageMult.toFixed(2)}
-          </div>
+          {monsterType === "mimic" ? (
+            <>
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  fontSize: "9px",
+                  color: "#888",
+                  letterSpacing: "1px",
+                  lineHeight: "1.8",
+                  maxWidth: "460px",
+                }}
+              >
+                Disguised as a treasure chest until you get within{" "}
+                {MIMIC_WAKE_DISTANCE} units. HP x{MIMIC_HEALTH_MULTIPLIER},
+                coins x{MIMIC_COIN_MULTIPLIER}. No shape options: only its
+                awakened color follows the difficulty scale.
+              </div>
 
-          <LabSlider
-            label="EYES"
-            value={genome.eyeCount}
-            min={1}
-            max={4}
-            step={1}
-            onChange={(value) => patchGenome({ eyeCount: value })}
-          />
-          <LabSlider
-            label="EYE SIZE"
-            value={genome.eyeScale.toFixed(2)}
-            min={0.75}
-            max={1.45}
-            step={0.05}
-            onChange={(value) => patchGenome({ eyeScale: value })}
-          />
-          <LabSlider
-            label="SPIKES"
-            value={genome.parts.spikes}
-            min={0}
-            max={6}
-            step={1}
-            onChange={(value) => patchParts({ spikes: value })}
-          />
-          <LabSlider
-            label="LEGS"
-            value={genome.parts.legs}
-            min={0}
-            max={6}
-            step={2}
-            onChange={(value) => patchParts({ legs: value })}
-          />
-          <LabSlider
-            label="TAIL"
-            value={genome.parts.tailSegments}
-            min={0}
-            max={5}
-            step={1}
-            onChange={(value) => patchParts({ tailSegments: value })}
-          />
-          <LabSlider
-            label="PLATES"
-            value={genome.parts.plates}
-            min={0}
-            max={4}
-            step={1}
-            onChange={(value) => patchParts({ plates: value })}
-          />
-          <LabSlider
-            label="SIZE"
-            value={genome.sizeMult.toFixed(2)}
-            min={0.6}
-            max={1.6}
-            step={0.05}
-            onChange={(value) => patchGenome({ sizeMult: value })}
-          />
-          <LabSlider
-            label="DIFFICULTY (COLOR)"
-            value={difficulty}
-            min={0}
-            max={10}
-            step={1}
-            onChange={setDifficulty}
-          />
+              <div style={{ gridColumn: "1 / -1" }}>
+                <LabSlider
+                  label="DIFFICULTY (AWAKE COLOR)"
+                  value={difficulty}
+                  min={0}
+                  max={16}
+                  step={1}
+                  onChange={setDifficulty}
+                />
+              </div>
 
-          <div style={{ display: "flex", gap: "10px" }}>
-            <button
-              className={`menu-button${genome.parts.horns ? " selected" : ""}`}
-              style={{ fontSize: "11px" }}
-              onClick={() => patchParts({ horns: !genome.parts.horns })}
-            >
-              HORNS
-            </button>
-            <button
-              className={`menu-button${
-                genome.parts.antennae ? " selected" : ""
-              }`}
-              style={{ fontSize: "11px" }}
-              onClick={() => patchParts({ antennae: !genome.parts.antennae })}
-            >
-              ANTENNAE
-            </button>
-          </div>
+              <button
+                className="menu-button"
+                style={{ gridColumn: "1 / -1", fontSize: "13px" }}
+                onClick={() => setMimicAwake((wasAwake) => !wasAwake)}
+              >
+                {mimicAwake ? "⟲ SHOW DISGUISE" : "⚠ REVEAL MIMIC"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  display: "flex",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                }}
+              >
+                {availableArchetypes.map((name) => (
+                  <button
+                    key={name}
+                    className={`tab-button${
+                      archetype === name ? " active" : ""
+                    }`}
+                    onClick={() => pickArchetypeTab(name)}
+                  >
+                    {name.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  fontSize: "9px",
+                  color: "#888",
+                  letterSpacing: "1px",
+                  lineHeight: "1.7",
+                }}
+              >
+                TYPE: {genome.archetype.toUpperCase()} | SPD x
+                {genome.speedMult.toFixed(2)} | HP x
+                {genome.healthMult.toFixed(2)} | DMG x
+                {genome.damageMult.toFixed(2)}
+                {isBossType && (
+                  <>
+                    <br />
+                    BOSS MULT: HP x{BOSS_HEALTH_MULTIPLIER}, DMG x
+                    {BOSS_DAMAGE_MULTIPLIER}, XP x{BOSS_XP_MULTIPLIER}, SIZE x
+                    {BOSS_SIZE_MULTIPLIER}
+                  </>
+                )}
+              </div>
+
+              {isBossType && (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    fontSize: "9px",
+                    color: "#ff8888",
+                    letterSpacing: "1px",
+                    lineHeight: "1.7",
+                    border: "1px solid #442222",
+                    padding: "6px 8px",
+                  }}
+                >
+                  SPECIAL ABILITIES (every {BOSS_SPECIAL_COOLDOWN.min} to{" "}
+                  {BOSS_SPECIAL_COOLDOWN.max}s within {BOSS_SPECIAL_RANGE}u):{" "}
+                  60% CHARGE ({BOSS_TELEGRAPH_TIME}s telegraph, then{" "}
+                  {BOSS_CHARGE_SPEED_MULTIPLIER}x speed dash for{" "}
+                  {BOSS_CHARGE_TIME}s), 40% SUMMON ({BOSS_SUMMON_COUNT} runner
+                  minions)
+                </div>
+              )}
+
+              <LabSlider
+                label="EYES"
+                value={genome.eyeCount}
+                min={1}
+                max={4}
+                step={1}
+                onChange={(value) => patchGenome({ eyeCount: value })}
+              />
+              <LabSlider
+                label="EYE SIZE"
+                value={genome.eyeScale.toFixed(2)}
+                min={0.75}
+                max={1.45}
+                step={0.05}
+                onChange={(value) => patchGenome({ eyeScale: value })}
+              />
+              <LabSlider
+                label="SPIKES"
+                value={genome.parts.spikes}
+                min={0}
+                max={6}
+                step={1}
+                onChange={(value) => patchParts({ spikes: value })}
+              />
+              <LabSlider
+                label="LEGS"
+                value={genome.parts.legs}
+                min={0}
+                max={6}
+                step={2}
+                onChange={(value) => patchParts({ legs: value })}
+              />
+              <LabSlider
+                label="TAIL"
+                value={genome.parts.tailSegments}
+                min={0}
+                max={5}
+                step={1}
+                onChange={(value) => patchParts({ tailSegments: value })}
+              />
+              <LabSlider
+                label="PLATES"
+                value={genome.parts.plates}
+                min={0}
+                max={4}
+                step={1}
+                onChange={(value) => patchParts({ plates: value })}
+              />
+              <LabSlider
+                label="SIZE"
+                value={genome.sizeMult.toFixed(2)}
+                min={0.6}
+                max={1.6}
+                step={0.05}
+                onChange={(value) => patchGenome({ sizeMult: value })}
+              />
+              <LabSlider
+                label="DIFFICULTY (COLOR)"
+                value={difficulty}
+                min={0}
+                max={16}
+                step={1}
+                onChange={setDifficulty}
+              />
+
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  display: "flex",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  className={`menu-button${
+                    genome.parts.horns ? " selected" : ""
+                  }`}
+                  style={{ fontSize: "11px" }}
+                  onClick={() => patchParts({ horns: !genome.parts.horns })}
+                >
+                  HORNS
+                </button>
+                <button
+                  className={`menu-button${
+                    genome.parts.antennae ? " selected" : ""
+                  }`}
+                  style={{ fontSize: "11px" }}
+                  onClick={() =>
+                    patchParts({ antennae: !genome.parts.antennae })
+                  }
+                >
+                  ANTENNAE
+                </button>
+              </div>
+
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  display: "flex",
+                  gap: "26px",
+                  flexWrap: "wrap",
+                  marginTop: "2px",
+                }}
+              >
+                {!isBossType && (
+                  <LabCheckbox
+                    label="ELITE (rainbow, x5 HP)"
+                    checked={elite}
+                    onChange={setElite}
+                  />
+                )}
+                <LabCheckbox
+                  label="RED EYES (night / mist)"
+                  checked={redEyes}
+                  onChange={setRedEyes}
+                />
+              </div>
+
+              <button
+                className="menu-button"
+                style={{ gridColumn: "1 / -1", fontSize: "15px", color: "#ffee00" }}
+                onClick={() => regenerate()}
+              >
+                ⟳ GENERATE
+              </button>
+            </>
+          )}
 
           <button
             className="menu-button"
-            style={{ fontSize: "15px", color: "#ffee00" }}
-            onClick={() => regenerate()}
-          >
-            ⟳ GENERATE
-          </button>
-
-          <button
-            className="menu-button"
-            style={{ fontSize: "12px" }}
+            style={{ gridColumn: "1 / -1", fontSize: "12px" }}
             onClick={onBack}
           >
             &lt; BACK

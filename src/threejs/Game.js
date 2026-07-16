@@ -7,6 +7,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { setFloatingTextCamera } from "../components/createFloatingText.js";
+import { isDebugMode } from "../core/debug.js";
 import {
   DAY_DURATION,
   NIGHT_DURATION,
@@ -20,6 +21,7 @@ import {
   RAIN_CHECK_INTERVAL,
   RAIN_CHANCE,
   RAIN_DURATION,
+  WEATHER_FADE_SPEED,
 } from "../constants";
 
 const TOTAL_CYCLE = DAY_DURATION + NIGHT_DURATION;
@@ -178,7 +180,7 @@ export class Game {
   }
 
   onMiniViewKeyDown = (event) => {
-    if (event.code === "Digit1") {
+    if (event.code === "Digit1" && isDebugMode()) {
       this.isMiniViewVisible = !this.isMiniViewVisible;
       this.miniCanvas.style.display = this.isMiniViewVisible ? "block" : "none";
     }
@@ -231,6 +233,10 @@ export class Game {
 
     this.rainPoints = makePoints(600, 0x88aaff, 0.12);
     this.snowPoints = makePoints(450, 0xffffff, 0.22);
+    this.rainBaseOpacity = this.rainPoints.material.opacity;
+    this.snowBaseOpacity = this.snowPoints.material.opacity;
+    this.rainOpacity = 0;
+    this.snowOpacity = 0;
 
     this.weatherGroup = new THREE.Group();
     this.weatherGroup.add(this.rainPoints, this.snowPoints);
@@ -238,7 +244,9 @@ export class Game {
   }
 
   updateWeather(deltaSeconds) {
-    if (deltaSeconds <= 0) return;
+    if (deltaSeconds <= 0) {
+      return;
+    }
 
     const player = this.scene.player;
     this.weatherGroup.position.set(player.position.x, 0, player.position.z);
@@ -271,14 +279,23 @@ export class Game {
       }
     }
 
-    const biome = this.scene.tileManager?.getBiomeNameAt(
+    const weights = this.scene.tileManager?.getBiomeWeights(
       player.position.x,
       player.position.z
-    );
-    const raining = state.rainActive && biome === "forest";
-    const snowing = biome === "snow";
+    ) ?? { forest: 0, snow: 0 };
+
+    const rainTarget = state.rainActive ? weights.forest : 0;
+    const snowTarget = weights.snow;
+    const fadeStep = Math.min(deltaSeconds * WEATHER_FADE_SPEED, 1);
+    this.rainOpacity += (rainTarget - this.rainOpacity) * fadeStep;
+    this.snowOpacity += (snowTarget - this.snowOpacity) * fadeStep;
+
+    const raining = this.rainOpacity > 0.02;
+    const snowing = this.snowOpacity > 0.02;
     this.rainPoints.visible = raining;
     this.snowPoints.visible = snowing;
+    this.rainPoints.material.opacity = this.rainOpacity * this.rainBaseOpacity;
+    this.snowPoints.material.opacity = this.snowOpacity * this.snowBaseOpacity;
 
     if (raining) {
       this._dropPoints(this.rainPoints, 24 * deltaSeconds, 0);

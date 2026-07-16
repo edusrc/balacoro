@@ -59,7 +59,9 @@ export class Minimap {
     }
 
     for (const enemy of enemies) {
-      if (enemy.isDormant) continue;
+      if (enemy.isDormant) {
+        continue;
+      }
       if (enemy.isBoss) {
         this.drawBossSkull(
           enemy.position,

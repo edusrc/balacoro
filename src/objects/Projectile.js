@@ -40,7 +40,8 @@ export class Projectile extends THREE.Mesh {
     damage = PROJECTILE_DAMAGE,
     glowing = false,
     pierce = 1,
-    color = PROJECTILE_COLOR
+    color = PROJECTILE_COLOR,
+    isCritical = false
   ) {
     super(sharedGeometry, getProjectileMaterial(color, glowing));
     this.position.copy(position);
@@ -51,6 +52,7 @@ export class Projectile extends THREE.Mesh {
     this.lifeTime = lifeTime;
     this.glowing = glowing;
     this.pierce = pierce;
+    this.isCritical = isCritical;
     this.hitEnemies = new Set();
   }
 

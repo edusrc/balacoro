@@ -9,6 +9,13 @@ const chestBodyMaterial = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
 const chestLidMaterial = new THREE.MeshStandardMaterial({ color: 0x6e4523 });
 const chestGoldMaterial = new THREE.MeshBasicMaterial({ color: 0xffd23e });
 
+export function applyIdleBob(bobbingObject, delta) {
+  bobbingObject.rotation.y += delta;
+  bobbingObject.bobTime += delta;
+  bobbingObject.position.y =
+    bobbingObject.baseY + Math.sin(bobbingObject.bobTime * 2) * 0.08;
+}
+
 export class Item extends THREE.Group {
   static skillTypes = Object.keys(INITIAL_PLAYER_SKILLS);
 
@@ -70,8 +77,6 @@ export class Item extends THREE.Group {
   }
 
   update(delta) {
-    this.rotation.y += delta;
-    this.bobTime += delta;
-    this.position.y = this.baseY + Math.sin(this.bobTime * 2) * 0.08;
+    applyIdleBob(this, delta);
   }
 }

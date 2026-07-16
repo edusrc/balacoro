@@ -21,6 +21,8 @@ import {
   BOSS_TELEGRAPH_TIME,
   BOSS_CHARGE_TIME,
   BOSS_CHARGE_SPEED_MULTIPLIER,
+  CRITICAL_FLASH_DURATION,
+  CRITICAL_FLASH_COLOR,
 } from "../constants.js";
 import {
   generateGenome,
@@ -34,6 +36,9 @@ const particleGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.15);
 const freezeGeometry = new THREE.SphereGeometry(1, 16, 16);
 
 const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const criticalFlashMaterial = new THREE.MeshBasicMaterial({
+  color: CRITICAL_FLASH_COLOR,
+});
 const freezeMaterial = new THREE.MeshBasicMaterial({
   color: 0x00ffff,
   transparent: true,
@@ -451,13 +456,13 @@ export class Enemy extends THREE.Object3D {
 
   _updateDeath(delta) {
     this.deathTimer -= delta;
-    const t = Math.max(this.deathTimer / ENEMY_DEATH_DURATION, 0);
-    this.mesh.scale.copy(this.bodyScale).multiplyScalar(t);
+    const shrinkProgress = Math.max(this.deathTimer / ENEMY_DEATH_DURATION, 0);
+    this.mesh.scale.copy(this.bodyScale).multiplyScalar(shrinkProgress);
 
     for (const particle of this.deathParticles) {
       particle.userData.velocity.y -= 12 * delta;
       particle.position.addScaledVector(particle.userData.velocity, delta);
-      particle.scale.setScalar(this.size * t);
+      particle.scale.setScalar(this.size * shrinkProgress);
     }
 
     if (this.deathTimer <= 0) {
@@ -486,7 +491,9 @@ export class Enemy extends THREE.Object3D {
   }
 
   freeze(duration) {
-    if (this.isFrozen || this.isDying) return;
+    if (this.isFrozen || this.isDying) {
+      return;
+    }
 
     this.isFrozen = true;
     this.freezeTimer = duration;
@@ -498,8 +505,12 @@ export class Enemy extends THREE.Object3D {
   }
 
   resolveCollision(otherEnemy) {
-    if (this.isDying || otherEnemy.isDying) return;
-    if (this.isDormant || otherEnemy.isDormant) return;
+    if (this.isDying || otherEnemy.isDying) {
+      return;
+    }
+    if (this.isDormant || otherEnemy.isDormant) {
+      return;
+    }
 
     const distance = this.position.distanceTo(otherEnemy.position);
     const minDistance = this.hitboxRadius + otherEnemy.hitboxRadius;
@@ -544,19 +555,24 @@ export class Enemy extends THREE.Object3D {
     }
   }
 
-  hit(damage = 1) {
-    if (this.isDying) return;
+  hit(damage = 1, isCritical = false) {
+    if (this.isDying) {
+      return;
+    }
 
     this.health -= damage;
     this.updateHealthBar();
 
+    const material = isCritical ? criticalFlashMaterial : flashMaterial;
     for (const entry of this.flashEntries) {
-      entry.mesh.material = flashMaterial;
+      entry.mesh.material = material;
     }
     for (const eye of this.eyes) {
-      eye.material = flashMaterial;
+      eye.material = material;
     }
-    this.flashTime = ENEMY_FLASH_DURATION;
+    this.flashTime = isCritical
+      ? CRITICAL_FLASH_DURATION
+      : ENEMY_FLASH_DURATION;
 
     if (this.health <= 0) {
       this.die();

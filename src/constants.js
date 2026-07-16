@@ -158,7 +158,7 @@ export const ELITE_SPEED_MULTIPLIER = 1.15;
 export const ELITE_XP_MULTIPLIER = 3;
 export const ELITE_COIN_MULTIPLIER = 2;
 
-export const LEVELS_PER_ENEMY_POWER = 4;
+export const LEVELS_PER_ENEMY_POWER = 5;
 export const ENEMY_BIOME_BIAS_CHANCE = 0.4;
 export const ENEMY_SOLID_CHECK_INTERVAL = 1.5;
 export const ENEMY_DEATH_DURATION = 0.4;
@@ -207,3 +207,11 @@ export const MIST_DURATION = { min: 30, max: 60 };
 export const RAIN_CHECK_INTERVAL = { min: 45, max: 90 };
 export const RAIN_CHANCE = 0.4;
 export const RAIN_DURATION = { min: 25, max: 50 };
+export const WEATHER_FADE_SPEED = 1.2;
+
+export const MIMIC_WAKE_GROW_TIME = 0.35;
+
+export const CRITICAL_FLASH_DURATION = 0.15;
+export const CRITICAL_FLASH_COLOR = 0xffaa00;
+
+export const BANNER_DURATION = 3.5;

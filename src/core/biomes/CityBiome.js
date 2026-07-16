@@ -222,7 +222,9 @@ export class CityBiome extends Biome {
       [litMatrices, windowLitMaterial],
       [darkMatrices, windowDarkMaterial],
     ]) {
-      if (matrices.length === 0) continue;
+      if (matrices.length === 0) {
+        continue;
+      }
       const instanced = new THREE.InstancedMesh(
         windowGeometry,
         material,

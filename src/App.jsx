@@ -6,7 +6,10 @@ import MonsterLabMenu from "./components/MonsterLabMenu.jsx";
 import LevelUpModal from "./components/LevelUpModal.jsx";
 import SkillChoiceModal from "./components/SkillChoiceModal.jsx";
 import CoinIcon from "./components/CoinIcon.jsx";
+import Banner from "./components/Banner.jsx";
+import DifficultySkull from "./components/DifficultySkull.jsx";
 import { addCoins as bankCoins } from "./core/wallet.js";
+import { isDebugMode } from "./core/debug.js";
 
 export default function App() {
   const threeRef = useRef(null);
@@ -18,12 +21,15 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [levelUpOpen, setLevelUpOpen] = useState(false);
   const [skillChoices, setSkillChoices] = useState(null);
+  const [banner, setBanner] = useState(null);
 
   const [stats, setStats] = useState({
     camPos: { x: 0, y: 0, z: 0 },
     difficulty: 0,
     elapsedTime: 0,
     clock: "12:00",
+    power: 0,
+    powerProgress: 0,
     player: {
       health: 100,
       maxHealth: 100,
@@ -72,6 +78,9 @@ export default function App() {
     game.scene.onShowSkillChoices = (skills) => {
       setSkillChoices(skills);
     };
+    game.scene.onBanner = (nextBanner) => {
+      setBanner(nextBanner);
+    };
     let animationFrameId;
 
     function updateStats() {
@@ -81,6 +90,8 @@ export default function App() {
         const elapsedTime = gameRef.current.scene.elapsedTime || 0;
         const clock = gameRef.current.clockText ?? "12:00";
         const coins = gameRef.current.scene.coinsEarned ?? 0;
+        const power = gameRef.current.scene.currentPower ?? 0;
+        const powerProgress = gameRef.current.scene.currentPowerContinuous ?? 0;
         const player = gameRef.current.scene.player;
 
         setStats({
@@ -89,6 +100,8 @@ export default function App() {
           elapsedTime,
           clock,
           coins,
+          power,
+          powerProgress,
           player: {
             health: player?.health ?? 100,
             maxHealth: player?.maxHealth ?? 100,
@@ -131,17 +144,30 @@ export default function App() {
   }, [screen]);
 
   useEffect(() => {
+    const debugHotkeys = {
+      Digit2: () => setIsCameraInfoVisible((previousValue) => !previousValue),
+      Digit3: () => setIsPlayerStatsVisible((previousValue) => !previousValue),
+      Digit4: () => gameRef.current?.scene?.player?.gainXP(10),
+      Digit5: () => gameRef.current?.scene?.debugAdjustDifficulty(1),
+      Digit6: () => gameRef.current?.scene?.debugAdjustDifficulty(-1),
+      Digit7: () => gameRef.current?.scene?.player?.debugGodMode(),
+    };
+
     function onKeyDown(event) {
-      if (event.code === "Digit2") {
-        setIsCameraInfoVisible((previousValue) => !previousValue);
-      }
-      if (event.code === "Digit3") {
-        setIsPlayerStatsVisible((previousValue) => !previousValue);
-      }
       if (event.code === "Escape") {
         if (gameRef.current && gameRef.current.scene) {
           gameRef.current.scene.togglePause();
         }
+        return;
+      }
+
+      if (!isDebugMode()) {
+        return;
+      }
+
+      const runDebugHotkey = debugHotkeys[event.code];
+      if (runDebugHotkey) {
+        runDebugHotkey();
       }
     }
 
@@ -161,6 +187,7 @@ export default function App() {
     setGameOver(false);
     setLevelUpOpen(false);
     setSkillChoices(null);
+    setBanner(null);
   };
 
   if (screen === "menu") {
@@ -399,6 +426,9 @@ export default function App() {
       >
         {stats.clock}
       </div>
+
+      <DifficultySkull power={stats.power} progress={stats.powerProgress} />
+      <Banner banner={banner} />
 
       {levelUpOpen && (
         <LevelUpModal

@@ -14,15 +14,15 @@ export class InputController {
     window.addEventListener("keyup", this.onKeyUp);
   }
 
-  onKeyDown = (e) => {
-    if (this.keys[e.code] !== undefined) {
-      this.keys[e.code] = true;
+  onKeyDown = (event) => {
+    if (this.keys[event.code] !== undefined) {
+      this.keys[event.code] = true;
     }
   };
 
-  onKeyUp = (e) => {
-    if (this.keys[e.code] !== undefined) {
-      this.keys[e.code] = false;
+  onKeyUp = (event) => {
+    if (this.keys[event.code] !== undefined) {
+      this.keys[event.code] = false;
     }
   };
 }

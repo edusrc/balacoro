@@ -78,6 +78,10 @@ function difficultyColor(level) {
   return color;
 }
 
+export function getDifficultyColor(difficulty) {
+  return difficultyColor(difficulty);
+}
+
 export function getDifficultyColorStyle(difficulty) {
   const color = difficultyColor(difficulty);
   const hsl = { h: 0, s: 0, l: 0 };
@@ -191,21 +195,32 @@ function randRange([min, max]) {
 }
 
 function pickArchetype() {
-  const entries = Object.entries(ARCHETYPES);
-  const total = entries.reduce((sum, [, spec]) => sum + spec.weight, 0);
-  let roll = Math.random() * total;
-  for (const [name, spec] of entries) {
-    roll -= spec.weight;
-    if (roll <= 0) return name;
+  const archetypeEntries = Object.entries(ARCHETYPES);
+  const totalWeight = archetypeEntries.reduce(
+    (sum, [, spec]) => sum + spec.weight,
+    0
+  );
+  let remainingWeight = Math.random() * totalWeight;
+  for (const [archetypeName, spec] of archetypeEntries) {
+    remainingWeight -= spec.weight;
+    if (remainingWeight <= 0) {
+      return archetypeName;
+    }
   }
   return "swarm";
 }
 
 function pickEyeCount() {
   const roll = Math.random();
-  if (roll < 0.5) return 2;
-  if (roll < 0.7) return 1;
-  if (roll < 0.9) return 3;
+  if (roll < 0.5) {
+    return 2;
+  }
+  if (roll < 0.7) {
+    return 1;
+  }
+  if (roll < 0.9) {
+    return 3;
+  }
   return 4;
 }
 
@@ -326,16 +341,23 @@ export function buildMonsterBody(genome, bodyMaterial) {
   }
 
   for (let i = 0; i < genome.parts.spikes; i++) {
-    const t = genome.parts.spikes > 1 ? i / (genome.parts.spikes - 1) : 0.5;
+    const ridgePosition =
+      genome.parts.spikes > 1 ? i / (genome.parts.spikes - 1) : 0.5;
     const direction = new THREE.Vector3(
       (rand() - 0.5) * 0.2,
       1,
-      -(t - 0.35) * 0.8
+      -(ridgePosition - 0.35) * 0.8
     ).normalize();
     const spike = new THREE.Mesh(spikeGeometry, darkMaterial);
-    spike.position.set((rand() - 0.5) * 0.1, 0.38, 0.35 - t * 0.75);
+    spike.position.set(
+      (rand() - 0.5) * 0.1,
+      0.38,
+      0.35 - ridgePosition * 0.75
+    );
     spike.quaternion.setFromUnitVectors(UP, direction);
-    spike.scale.setScalar(0.9 + rand() * 0.5 - Math.abs(t - 0.5) * 0.5);
+    spike.scale.setScalar(
+      0.9 + rand() * 0.5 - Math.abs(ridgePosition - 0.5) * 0.5
+    );
     group.add(spike);
     flashEntries.push({ mesh: spike, material: darkMaterial });
   }

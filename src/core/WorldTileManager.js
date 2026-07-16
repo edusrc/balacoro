@@ -131,6 +131,19 @@ export class WorldTileManager {
     return { primary, secondary, blend };
   }
 
+  getBiomeWeights(x, z) {
+    const sample = this.getBiomeSample(
+      this._worldToChunk(x),
+      this._worldToChunk(z)
+    );
+    const weights = { city: 0, forest: 0, desert: 0, snow: 0 };
+    weights[sample.primary] = 1 - sample.blend;
+    if (sample.secondary) {
+      weights[sample.secondary] = sample.blend;
+    }
+    return weights;
+  }
+
   getBiomeNameForChunk(chunkX, chunkZ) {
     return this.getBiomeSample(chunkX, chunkZ).primary;
   }
@@ -249,7 +262,9 @@ export class WorldTileManager {
     for (let cx = chunkX - 1; cx <= chunkX + 1; cx++) {
       for (let cz = chunkZ - 1; cz <= chunkZ + 1; cz++) {
         const tile = this.loadedTiles.get(this._tileKey(cx, cz));
-        if (!tile) continue;
+        if (!tile) {
+          continue;
+        }
         for (const box of tile.solidBoxes) {
           if (box.containsPoint(point)) {
             return true;
@@ -269,7 +284,9 @@ export class WorldTileManager {
     for (let cx = minChunkX; cx <= maxChunkX; cx++) {
       for (let cz = minChunkZ; cz <= maxChunkZ; cz++) {
         const tile = this.loadedTiles.get(this._tileKey(cx, cz));
-        if (!tile) continue;
+        if (!tile) {
+          continue;
+        }
         for (const solidBox of tile.solidBoxes) {
           if (solidBox.intersectsBox(box)) {
             return true;

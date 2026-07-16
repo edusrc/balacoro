@@ -5,7 +5,7 @@ import { Player } from "../objects/Player.js";
 import { Enemy } from "../objects/Enemy.js";
 import { Mimic } from "../objects/Mimic.js";
 import { Item } from "../objects/Item.js";
-import { showMessage } from "../components/FloatingMessage.js";
+import { showDamageText } from "../components/DamageText.js";
 import {
   PLAYER_RADIUS,
   ENEMY_SPAWN_INTERVAL,
@@ -105,17 +105,24 @@ export class MainScene extends THREE.Scene {
       : amount;
   }
 
+  debugAdjustDifficulty(steps) {
+    this.elapsedTime = Math.max(
+      0,
+      this.elapsedTime + steps * DIFFICULTY_INCREASE_INTERVAL_SECONDS
+    );
+  }
+
   spawnMinions(boss) {
     for (let i = 0; i < BOSS_SUMMON_COUNT; i++) {
       const angle = (i / BOSS_SUMMON_COUNT) * Math.PI * 2 + Math.random();
-      const pos = new THREE.Vector3(
+      const spawnPosition = new THREE.Vector3(
         boss.position.x + Math.cos(angle) * (boss.size + 1.5),
         0,
         boss.position.z + Math.sin(angle) * (boss.size + 1.5)
       );
       const minion = new Enemy(
         this.player,
-        pos,
+        spawnPosition,
         4,
         BASE_ENEMY_HEALTH + boss.difficulty * ENEMY_HEALTH_GROWTH,
         boss.difficulty,
@@ -128,11 +135,11 @@ export class MainScene extends THREE.Scene {
   }
 
   _spawnMimic(difficulty) {
-    const pos = this._getRandomSpawnAroundPlayer(25, 50);
-    const power = this._getEnemyPower(difficulty);
+    const spawnPosition = this._getRandomSpawnAroundPlayer(25, 50);
+    const power = difficulty;
     const mimic = new Mimic(
       this.player,
-      pos,
+      spawnPosition,
       4.5,
       (BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH) *
         MIMIC_HEALTH_MULTIPLIER,
@@ -221,32 +228,33 @@ export class MainScene extends THREE.Scene {
   }
 
   _spawnItem() {
-    const pos = this._getRandomSpawnAroundPlayer(
+    const spawnPosition = this._getRandomSpawnAroundPlayer(
       ITEM_SPAWN_DISTANCE.min,
       ITEM_SPAWN_DISTANCE.max
     );
-    pos.y = 0.25;
-    const item = new Item(pos, 0.05, 0x800080);
+    spawnPosition.y = 0.25;
+    const item = new Item(spawnPosition, 0.05, 0x800080);
     this.add(item);
     this.items.push(item);
-
-    showMessage("An item spawned near you", "#fff", "50px");
   }
 
   _spawnEnemy(difficulty) {
-    const pos = this._getRandomSpawnAroundPlayer(
+    const spawnPosition = this._getRandomSpawnAroundPlayer(
       ENEMY_SPAWN_DISTANCE.min,
       ENEMY_SPAWN_DISTANCE.max
     );
-    const biome = this.tileManager.getBiomeNameAt(pos.x, pos.z);
+    const biome = this.tileManager.getBiomeNameAt(
+      spawnPosition.x,
+      spawnPosition.z
+    );
     const biasMap = { snow: "tank", desert: "runner", city: "brute" };
     const bias = biasMap[biome];
     const forcedArchetype =
       bias && Math.random() < ENEMY_BIOME_BIAS_CHANCE ? bias : undefined;
-    const power = this._getEnemyPower(difficulty);
+    const power = difficulty;
     const enemy = new Enemy(
       this.player,
-      pos,
+      spawnPosition,
       4,
       BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH,
       power,
@@ -257,12 +265,6 @@ export class MainScene extends THREE.Scene {
     this.enemies.push(enemy);
   }
 
-  _getEnemyPower(difficulty) {
-    return (
-      difficulty + Math.floor((this.player.level - 1) / LEVELS_PER_ENEMY_POWER)
-    );
-  }
-
   _spawnEnemyPack(difficulty) {
     const count = Math.random() < 0.2 + difficulty * 0.01 ? 2 : 1;
     for (let i = 0; i < count; i++) {
@@ -271,17 +273,17 @@ export class MainScene extends THREE.Scene {
   }
 
   _spawnBoss(difficulty) {
-    const pos = this._getRandomSpawnAroundPlayer(
+    const spawnPosition = this._getRandomSpawnAroundPlayer(
       ENEMY_SPAWN_DISTANCE.min,
       ENEMY_SPAWN_DISTANCE.max
     );
-    const power = this._getEnemyPower(difficulty);
+    const power = difficulty;
     const health =
       (BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH) *
       BOSS_HEALTH_MULTIPLIER;
     const boss = new Enemy(
       this.player,
-      pos,
+      spawnPosition,
       BOSS_SPEED,
       health,
       power,
@@ -290,14 +292,22 @@ export class MainScene extends THREE.Scene {
     this.add(boss);
     this.enemies.push(boss);
 
-    showMessage(`A boss has appeared! Difficulty ${difficulty}`, "#ff3333");
+    this._announce("A BOSS HAS APPEARED", "#ff3333", "☠");
+  }
+
+  _announce(text, color, icon) {
+    if (this.onBanner) {
+      this.onBanner({ text, color, icon, key: Date.now() + Math.random() });
+    }
   }
 
   _updateProjectiles(delta) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const projectile = this.projectiles[i];
       projectile.update(delta);
-      if (!projectile.parent) this.projectiles.splice(i, 1);
+      if (!projectile.parent) {
+        this.projectiles.splice(i, 1);
+      }
     }
   }
 
@@ -316,11 +326,11 @@ export class MainScene extends THREE.Scene {
         !enemy.isDying &&
         enemy.position.distanceToSquared(this.player.position) > despawnDistSq
       ) {
-        const pos = this._getRandomSpawnAroundPlayer(
+        const spawnPosition = this._getRandomSpawnAroundPlayer(
           ENEMY_SPAWN_DISTANCE.min,
           ENEMY_SPAWN_DISTANCE.max
         );
-        enemy.position.copy(pos);
+        enemy.position.copy(spawnPosition);
         continue;
       }
 
@@ -333,11 +343,11 @@ export class MainScene extends THREE.Scene {
             enemy.getCollisionBoxAt(enemy.position)
           )
         ) {
-          const pos = this._getRandomSpawnAroundPlayer(
+          const spawnPosition = this._getRandomSpawnAroundPlayer(
             ENEMY_SPAWN_DISTANCE.min,
             ENEMY_SPAWN_DISTANCE.max
           );
-          enemy.position.copy(pos);
+          enemy.position.copy(spawnPosition);
         }
       }
     }
@@ -388,8 +398,8 @@ export class MainScene extends THREE.Scene {
     const cellSize = 4;
     const grid = new Map();
 
-    for (let i = 0; i < this.enemies.length; i++) {
-      const enemy = this.enemies[i];
+    for (let enemyIndex = 0; enemyIndex < this.enemies.length; enemyIndex++) {
+      const enemy = this.enemies[enemyIndex];
       const key = `${Math.floor(enemy.position.x / cellSize)}_${Math.floor(
         enemy.position.z / cellSize
       )}`;
@@ -398,21 +408,25 @@ export class MainScene extends THREE.Scene {
         cell = [];
         grid.set(key, cell);
       }
-      cell.push(i);
+      cell.push(enemyIndex);
     }
 
-    for (let i = 0; i < this.enemies.length; i++) {
-      const enemy = this.enemies[i];
-      const cx = Math.floor(enemy.position.x / cellSize);
-      const cz = Math.floor(enemy.position.z / cellSize);
+    for (let enemyIndex = 0; enemyIndex < this.enemies.length; enemyIndex++) {
+      const enemy = this.enemies[enemyIndex];
+      const cellX = Math.floor(enemy.position.x / cellSize);
+      const cellZ = Math.floor(enemy.position.z / cellSize);
 
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dz = -1; dz <= 1; dz++) {
-          const cell = grid.get(`${cx + dx}_${cz + dz}`);
-          if (!cell) continue;
-          for (const j of cell) {
-            if (j <= i) continue;
-            enemy.resolveCollision(this.enemies[j]);
+      for (let offsetX = -1; offsetX <= 1; offsetX++) {
+        for (let offsetZ = -1; offsetZ <= 1; offsetZ++) {
+          const cell = grid.get(`${cellX + offsetX}_${cellZ + offsetZ}`);
+          if (!cell) {
+            continue;
+          }
+          for (const neighborIndex of cell) {
+            if (neighborIndex <= enemyIndex) {
+              continue;
+            }
+            enemy.resolveCollision(this.enemies[neighborIndex]);
           }
         }
       }
@@ -430,25 +444,34 @@ export class MainScene extends THREE.Scene {
 
     this._resolveEnemyCollisions();
 
-    for (const p of this.projectiles) {
-      if (!p.parent) continue;
-      const box = p.getCollisionBox();
-      const hitSomething = this.tileManager.intersectsSolid(box);
-      if (hitSomething && p.parent) {
-        p.parent.remove(p);
+    for (const projectile of this.projectiles) {
+      if (!projectile.parent) {
+        continue;
+      }
+      const projectileBox = projectile.getCollisionBox();
+      const hitTerrain = this.tileManager.intersectsSolid(projectileBox);
+      if (hitTerrain && projectile.parent) {
+        projectile.parent.remove(projectile);
         continue;
       }
 
-      for (const e of this.enemies) {
-        if (e.isDying || p.hitEnemies.has(e)) continue;
-        const hitDistance = e.hitboxRadius + PROJECTILE_SIZE / 2;
+      for (const enemy of this.enemies) {
+        if (enemy.isDying || projectile.hitEnemies.has(enemy)) {
+          continue;
+        }
+        const hitDistance = enemy.hitboxRadius + PROJECTILE_SIZE / 2;
         if (
-          p.position.distanceToSquared(e.position) <
+          projectile.position.distanceToSquared(enemy.position) <
           hitDistance * hitDistance
         ) {
-          const projectileDamage = p.damage;
-          e.hit(projectileDamage);
-          p.hitEnemies.add(e);
+          const projectileDamage = projectile.damage;
+          enemy.hit(projectileDamage, projectile.isCritical);
+          if (projectile.isCritical) {
+            const hitPosition = enemy.position.clone();
+            hitPosition.y += enemy.size ?? 1;
+            showDamageText(Math.floor(projectileDamage), hitPosition, true);
+          }
+          projectile.hitEnemies.add(enemy);
           if (this.player.lifeSteal > 0) {
             this.player.health = Math.min(
               this.player.health + projectileDamage * this.player.lifeSteal,
@@ -456,10 +479,10 @@ export class MainScene extends THREE.Scene {
             );
           }
 
-          p.pierce -= 1;
-          if (p.pierce <= 0) {
-            if (p.parent) {
-              p.parent.remove(p);
+          projectile.pierce -= 1;
+          if (projectile.pierce <= 0) {
+            if (projectile.parent) {
+              projectile.parent.remove(projectile);
             }
             break;
           }
@@ -468,7 +491,9 @@ export class MainScene extends THREE.Scene {
     }
 
     for (const enemy of this.enemies) {
-      if (enemy.isDying || enemy.isDormant) continue;
+      if (enemy.isDying || enemy.isDormant) {
+        continue;
+      }
       const minDist = playerRadius + enemy.hitboxRadius;
       const distVec = new THREE.Vector3().subVectors(
         enemy.position,
@@ -540,13 +565,22 @@ export class MainScene extends THREE.Scene {
 
   update(camera) {
     const delta = this.isPaused ? 0 : this.clock.getDelta();
-    if (this.isPaused) return;
+    if (this.isPaused) {
+      return;
+    }
 
     this.elapsedTime += delta;
+    const levelTimeBonus =
+      (this.player.level - 1) *
+      (DIFFICULTY_INCREASE_INTERVAL_SECONDS / LEVELS_PER_ENEMY_POWER);
+    const effectiveSeconds = this.elapsedTime + levelTimeBonus;
     const difficulty = Math.floor(
-      this.elapsedTime / DIFFICULTY_INCREASE_INTERVAL_SECONDS
+      effectiveSeconds / DIFFICULTY_INCREASE_INTERVAL_SECONDS
     );
     this.currentDifficulty = INITIAL_DIFFICULTY + difficulty;
+    this.currentPower = this.currentDifficulty;
+    this.currentPowerContinuous =
+      effectiveSeconds / DIFFICULTY_INCREASE_INTERVAL_SECONDS;
 
     if (this.currentDifficulty > this.highestBossDifficultySpawned) {
       this.highestBossDifficultySpawned = this.currentDifficulty;
@@ -555,14 +589,14 @@ export class MainScene extends THREE.Scene {
 
     if (this.isFullMoon && !this._fullMoonAnnounced) {
       this._fullMoonAnnounced = true;
-      showMessage("BLOOD MOON RISES!", "#ff4444");
+      this._announce("BLOOD MOON RISES", "#ff4444", "🌕");
     }
     if (!this.isFullMoon) {
       this._fullMoonAnnounced = false;
     }
     if (this.isMist && !this._mistAnnounced) {
       this._mistAnnounced = true;
-      showMessage("A dense mist rolls in...", "#aabbcc");
+      this._announce("THE MIST THICKENS", "#aabbcc", "🌫");
     }
     if (!this.isMist) {
       this._mistAnnounced = false;

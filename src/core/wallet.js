@@ -10,27 +10,31 @@ export function getCoins() {
 }
 
 export function addCoins(amount) {
-  const value = Math.max(0, Math.floor(amount));
-  if (value === 0) return;
+  const coinAmount = Math.max(0, Math.floor(amount));
+  if (coinAmount === 0) {
+    return;
+  }
   try {
-    localStorage.setItem(COINS_KEY, String(getCoins() + value));
+    localStorage.setItem(COINS_KEY, String(getCoins() + coinAmount));
   } catch {
     return;
   }
 }
 
 export function spendCoins(amount) {
-  const current = getCoins();
-  if (current < amount) return false;
+  const currentCoins = getCoins();
+  if (currentCoins < amount) {
+    return false;
+  }
   try {
-    localStorage.setItem(COINS_KEY, String(current - amount));
+    localStorage.setItem(COINS_KEY, String(currentCoins - amount));
   } catch {
     return false;
   }
   return true;
 }
 
-function getOwnedSet() {
+function getOwnedCosmeticsSet() {
   try {
     return new Set(JSON.parse(localStorage.getItem(OWNED_KEY)) ?? []);
   } catch {
@@ -38,16 +42,18 @@ function getOwnedSet() {
   }
 }
 
-export function isOwned(kind, id) {
-  if (id === "none") return true;
-  return getOwnedSet().has(`${kind}:${id}`);
+export function isOwned(kind, cosmeticId) {
+  if (cosmeticId === "none") {
+    return true;
+  }
+  return getOwnedCosmeticsSet().has(`${kind}:${cosmeticId}`);
 }
 
-export function unlockCosmetic(kind, id) {
-  const owned = getOwnedSet();
-  owned.add(`${kind}:${id}`);
+export function unlockCosmetic(kind, cosmeticId) {
+  const ownedCosmetics = getOwnedCosmeticsSet();
+  ownedCosmetics.add(`${kind}:${cosmeticId}`);
   try {
-    localStorage.setItem(OWNED_KEY, JSON.stringify([...owned]));
+    localStorage.setItem(OWNED_KEY, JSON.stringify([...ownedCosmetics]));
   } catch {
     return;
   }

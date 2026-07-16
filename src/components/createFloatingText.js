@@ -1,10 +1,16 @@
-export function createFloatingText(content, color, worldPos, floatAmount) {
-  const el = document.createElement("div");
-  Object.assign(el.style, {
+export function createFloatingText(
+  content,
+  color,
+  worldPos,
+  floatAmount,
+  fontSize = "18px"
+) {
+  const element = document.createElement("div");
+  Object.assign(element.style, {
     position: "absolute",
     color,
     fontFamily: "monospace",
-    fontSize: "18px",
+    fontSize,
     fontWeight: "bold",
     pointerEvents: "none",
     left: "50%",
@@ -15,19 +21,19 @@ export function createFloatingText(content, color, worldPos, floatAmount) {
     boxShadow: "0 0 10px rgba(255, 255, 255, 0.3)",
     zIndex: 1000,
   });
-  el.innerText = content;
+  element.innerText = content;
 
   const { x, y } = worldToScreen(worldPos);
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
+  element.style.left = `${x}px`;
+  element.style.top = `${y}px`;
 
   requestAnimationFrame(() => {
-    el.style.top = `${y - floatAmount}px`;
-    el.style.opacity = "0";
+    element.style.top = `${y - floatAmount}px`;
+    element.style.opacity = "0";
   });
 
-  setTimeout(() => el.remove(), 1000);
-  return el;
+  setTimeout(() => element.remove(), 1000);
+  return element;
 }
 
 let currentCamera = null;
