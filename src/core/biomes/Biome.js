@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createTileRng, fractalNoise2D } from "../WorldNoise.js";
+import { lampBulbMaterial } from "./lightMaterials.js";
 
 const geometryCache = new Map();
 const materialCache = new Map();
@@ -18,7 +19,6 @@ const iceLakeMaterial = new THREE.MeshStandardMaterial({
   metalness: 0.2,
 });
 const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xff7a26 });
-const lampBulbMaterial = new THREE.MeshBasicMaterial({ color: 0xfff0b0 });
 
 function sharedGeometry(key, create) {
   let geometry = geometryCache.get(key);

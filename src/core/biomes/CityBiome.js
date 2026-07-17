@@ -1,13 +1,12 @@
 import * as THREE from "three";
 import { Biome } from "./Biome.js";
 import { LAMP_CHANCE, WINDOW_LIT_CHANCE } from "../../constants.js";
+import { lampBulbMaterial, windowLitMaterial } from "./lightMaterials.js";
 
 const windowGeometry = new THREE.PlaneGeometry(0.7, 0.9);
 const stripeGeometry = new THREE.PlaneGeometry(0.35, 1.8);
-const windowLitMaterial = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
 const windowDarkMaterial = new THREE.MeshStandardMaterial({ color: 0x18202c });
 const stripeMaterial = new THREE.MeshBasicMaterial({ color: 0xdddddd });
-const lampBulbMaterial = new THREE.MeshBasicMaterial({ color: 0xfff0b0 });
 
 function mod5(value) {
   return ((value % 5) + 5) % 5;

@@ -3,18 +3,26 @@ const STORAGE_KEY = "balacoro_customization";
 export const DEFAULT_CUSTOMIZATION = {
   color: 0xffee00,
   projectileColor: 0x00ff00,
-  hat: "none",
-  glasses: "none",
-  ears: "none",
+  accessories: [],
 };
 
 export function loadCustomization() {
   try {
-    const storedCustomization = localStorage.getItem(STORAGE_KEY);
-    if (!storedCustomization) {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (!stored) {
       return { ...DEFAULT_CUSTOMIZATION };
     }
-    return { ...DEFAULT_CUSTOMIZATION, ...JSON.parse(storedCustomization) };
+    const accessories = Array.isArray(stored.accessories)
+      ? stored.accessories
+      : [stored.hat, stored.glasses, stored.ears].filter(
+          (id) => id && id !== "none"
+        );
+    return {
+      color: stored.color ?? DEFAULT_CUSTOMIZATION.color,
+      projectileColor:
+        stored.projectileColor ?? DEFAULT_CUSTOMIZATION.projectileColor,
+      accessories,
+    };
   } catch {
     return { ...DEFAULT_CUSTOMIZATION };
   }

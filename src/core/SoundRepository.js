@@ -460,6 +460,7 @@ export const SOUND_CONFIG = {
       maxVolume: 0.85,
       loop: false,
       skullPowerTrigger: 17,
+      randomPlay: { intervalSeconds: { min: 20, max: 50 } },
     },
   },
 

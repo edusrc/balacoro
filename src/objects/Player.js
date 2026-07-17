@@ -4,7 +4,8 @@ import { Projectile } from "./Projectile";
 import { showXPText } from "../components/XPText.js";
 import { showDamageText } from "../components/DamageText.js";
 import { loadCustomization } from "../core/customization.js";
-import { createHat, createGlasses, createEars } from "../core/cosmetics.js";
+import { createAccessory } from "../core/cosmetics.js";
+import { TrailEmitter, getTrailDefinitions } from "../core/trails.js";
 import { audio } from "../core/AudioEngine.js";
 
 import {
@@ -60,7 +61,7 @@ export class Player extends THREE.Object3D {
     this.criticalChance = PLAYER_INITIAL_CRITICAL_CHANCE;
     this.lifeSteal = PLAYER_INITIAL_LIFE_STEAL;
 
-    this.active_skills = INITIAL_PLAYER_SKILLS;
+    this.active_skills = JSON.parse(JSON.stringify(INITIAL_PLAYER_SKILLS));
 
     const customization = loadCustomization();
     this.customColor = customization.color;
@@ -88,11 +89,9 @@ export class Player extends THREE.Object3D {
       mesh.add(eye);
     }
 
-    for (const accessory of [
-      createHat(customization.hat),
-      createGlasses(customization.glasses),
-      createEars(customization.ears),
-    ]) {
+    for (const accessory of (customization.accessories ?? []).map(
+      createAccessory
+    )) {
       if (!accessory) {
         continue;
       }
@@ -115,6 +114,9 @@ export class Player extends THREE.Object3D {
     this.damageEffectTime = 0;
     this.dashFlashTime = 0;
     this.originalColor = new THREE.Color(this.customColor);
+
+    this.trailDefs = getTrailDefinitions(customization.accessories);
+    this.trailEmitter = null;
 
     this.glowing = false;
     this.projectGlowing = false;
@@ -202,6 +204,13 @@ export class Player extends THREE.Object3D {
       this.health > 0 &&
         this.health / this.maxHealth <= audio.globals.lowHealthHeartbeatRatio
     );
+
+    if (this.trailDefs.length > 0 && this.parent) {
+      if (!this.trailEmitter) {
+        this.trailEmitter = new TrailEmitter(this.parent, this.trailDefs);
+      }
+      this.trailEmitter.update(delta, this.position, direction.lengthSq() > 0);
+    }
 
     const energySkill = this.active_skills.energyExplosion;
     if (energySkill?.enabled) {
@@ -675,6 +684,88 @@ export class Player extends THREE.Object3D {
           this.updateForceFieldVisual();
         }
       }
+    }
+  }
+
+  captureState() {
+    return {
+      position: { x: this.position.x, z: this.position.z },
+      health: this.health,
+      maxHealth: this.maxHealth,
+      speed: this.speed,
+      damage: this.damage,
+      attackSpeed: this.attackSpeed,
+      sharpening: this.sharpening,
+      healthRegen: this.healthRegen,
+      criticalDamage: this.criticalDamage,
+      criticalChance: this.criticalChance,
+      lifeSteal: this.lifeSteal,
+      level: this.level,
+      currentXP: this.currentXP,
+      glowing: this.glowing,
+      projectGlowing: this.projectGlowing,
+      shieldCount: this.shieldCount,
+      dashCharges: this.dashCharges,
+      dashCooldownTimer: this.dashCooldownTimer,
+      forceFieldCooldownTimer: this.forceFieldCooldownTimer,
+      freezeExplosionTimer: this.freezeExplosionTimer,
+      energyExplosionTimer: this.energyExplosionTimer,
+      active_skills: JSON.parse(JSON.stringify(this.active_skills)),
+    };
+  }
+
+  restoreState(state) {
+    const numericFields = [
+      "health",
+      "maxHealth",
+      "speed",
+      "damage",
+      "attackSpeed",
+      "sharpening",
+      "healthRegen",
+      "criticalDamage",
+      "criticalChance",
+      "lifeSteal",
+      "level",
+      "currentXP",
+      "shieldCount",
+      "dashCharges",
+      "dashCooldownTimer",
+      "forceFieldCooldownTimer",
+      "freezeExplosionTimer",
+      "energyExplosionTimer",
+    ];
+    for (const field of numericFields) {
+      if (typeof state[field] === "number") {
+        this[field] = state[field];
+      }
+    }
+    if (state.active_skills) {
+      this.active_skills = JSON.parse(JSON.stringify(state.active_skills));
+    }
+    if (state.position) {
+      this.position.set(state.position.x ?? 0, 0, state.position.z ?? 0);
+    }
+    this.projectGlowing = state.projectGlowing === true;
+    this.glowing = state.glowing === true;
+
+    if (this.glowing) {
+      const mesh = this.children.find((child) => child.isMesh);
+      if (mesh && mesh.material) {
+        mesh.material.emissive = this.glowColor.clone();
+        mesh.material.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
+      }
+      if (this.personalLight) {
+        this.personalLight.intensity = PLAYER_LIGHT_INTENSITY_GLOWING;
+        this.personalLight.distance = PLAYER_LIGHT_DISTANCE_GLOWING;
+      }
+    }
+
+    if (this.active_skills.forceField?.enabled) {
+      if (!this.getObjectByName("forceField")) {
+        this.createForceFieldVisual();
+      }
+      this.updateForceFieldVisual();
     }
   }
 

@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { createHat, createGlasses, createEars } from "../core/cosmetics.js";
+import { createAccessory } from "../core/cosmetics.js";
+import { TrailEmitter, getTrailDefinitions } from "../core/trails.js";
 
 const PIXEL_SCALE = 3;
 const CUBE_X = 2.2;
+const IDLE_RESUME_SECONDS = 4;
 
 export const MENU_CSS = `
   .menu-button {
@@ -67,11 +69,13 @@ export const MENU_CSS = `
   }
 `;
 
-export default function MenuStage({ color, hat, glasses, ears, projectileColor }) {
+export default function MenuStage({ color, accessories = [], projectileColor }) {
   const canvasRef = useRef(null);
   const cubeRef = useRef(null);
   const shotRef = useRef(null);
   const accessoriesRef = useRef([]);
+  const sceneRef = useRef(null);
+  const trailRef = useRef(null);
 
   useEffect(() => {
     const renderer = new THREE.WebGLRenderer({
@@ -83,6 +87,7 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x08080e);
     scene.fog = new THREE.FogExp2(0x08080e, 0.045);
+    sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 60);
     camera.position.set(0, 2.6, 7);
@@ -158,6 +163,70 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
     beam.position.set(CUBE_X, beamHeight / 2 + 0.01, 0);
     scene.add(beam);
 
+    const raycaster = new THREE.Raycaster();
+    const pointerNdc = new THREE.Vector2();
+    const dragState = {
+      active: false,
+      lastX: 0,
+      lastY: 0,
+      targetY: 0,
+      targetX: 0,
+      velocityY: 0,
+      velocityX: 0,
+    };
+    let idleTime = IDLE_RESUME_SECONDS;
+
+    const isPointerOnCube = (event) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointerNdc, camera);
+      return raycaster.intersectObject(cube, true).length > 0;
+    };
+
+    const onPointerDown = (event) => {
+      if (!isPointerOnCube(event)) {
+        return;
+      }
+      dragState.active = true;
+      dragState.lastX = event.clientX;
+      dragState.lastY = event.clientY;
+      dragState.targetY = cube.rotation.y;
+      dragState.targetX = cube.rotation.x;
+      dragState.velocityY = 0;
+      dragState.velocityX = 0;
+      idleTime = 0;
+      renderer.domElement.style.cursor = "grabbing";
+    };
+
+    const onPointerMove = (event) => {
+      if (dragState.active) {
+        dragState.targetY += (event.clientX - dragState.lastX) * 0.011;
+        dragState.targetX += (event.clientY - dragState.lastY) * 0.011;
+        dragState.targetX = Math.max(Math.min(dragState.targetX, 1.2), -1.2);
+        dragState.lastX = event.clientX;
+        dragState.lastY = event.clientY;
+        idleTime = 0;
+        return;
+      }
+      renderer.domElement.style.cursor = isPointerOnCube(event)
+        ? "grab"
+        : "default";
+    };
+
+    const onPointerUp = () => {
+      if (!dragState.active) {
+        return;
+      }
+      dragState.active = false;
+      idleTime = 0;
+      renderer.domElement.style.cursor = "default";
+    };
+
+    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+
     const clock = new THREE.Clock();
     let animationFrameId;
 
@@ -165,7 +234,35 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
       animationFrameId = requestAnimationFrame(animate);
       const delta = clock.getDelta();
       const elapsedTime = clock.elapsedTime;
-      cube.rotation.y += delta * 0.9;
+      if (dragState.active) {
+        const pull = Math.min(delta * 5, 1);
+        const previousY = cube.rotation.y;
+        const previousX = cube.rotation.x;
+        cube.rotation.y += (dragState.targetY - cube.rotation.y) * pull;
+        cube.rotation.x += (dragState.targetX - cube.rotation.x) * pull;
+        if (delta > 0) {
+          dragState.velocityY = (cube.rotation.y - previousY) / delta;
+          dragState.velocityX = (cube.rotation.x - previousX) / delta;
+        }
+      } else {
+        idleTime += delta;
+        const friction = Math.exp(-delta * 2.2);
+        dragState.velocityY *= friction;
+        dragState.velocityX *= friction;
+        if (Math.abs(dragState.velocityY) > 0.01) {
+          cube.rotation.y += dragState.velocityY * delta;
+        }
+        if (Math.abs(dragState.velocityX) > 0.01) {
+          cube.rotation.x = Math.max(
+            Math.min(cube.rotation.x + dragState.velocityX * delta, 1.2),
+            -1.2
+          );
+        }
+        if (idleTime >= IDLE_RESUME_SECONDS) {
+          cube.rotation.y += delta * 0.9;
+          cube.rotation.x += (0 - cube.rotation.x) * Math.min(delta * 2, 1);
+        }
+      }
       cube.position.y = 0.8 + Math.sin(elapsedTime * 1.6) * 0.1;
       shot.position.set(
         CUBE_X + Math.cos(elapsedTime * 1.8) * 1.4,
@@ -174,6 +271,7 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
       );
       shot.rotation.x += delta * 3;
       shot.rotation.y += delta * 2;
+      trailRef.current?.update(delta, cube.position, true);
       renderer.render(scene, camera);
     };
     animate();
@@ -181,7 +279,13 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
     return () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", resize);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
       disposeAccessories(accessoriesRef);
+      trailRef.current?.dispose();
+      trailRef.current = null;
+      sceneRef.current = null;
       cubeRef.current = null;
       shotRef.current = null;
       shot.geometry.dispose();
@@ -198,6 +302,8 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
     };
   }, []);
 
+  const accessoriesKey = accessories.join("|");
+
   useEffect(() => {
     const cube = cubeRef.current;
     if (!cube) {
@@ -212,11 +318,10 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
     }
 
     disposeAccessories(accessoriesRef, cube);
-    for (const accessory of [
-      createHat(hat),
-      createGlasses(glasses),
-      createEars(ears),
-    ]) {
+    for (const accessory of accessoriesKey
+      .split("|")
+      .filter(Boolean)
+      .map(createAccessory)) {
       if (!accessory) {
         continue;
       }
@@ -226,7 +331,18 @@ export default function MenuStage({ color, hat, glasses, ears, projectileColor }
       cube.add(accessory);
       accessoriesRef.current.push(accessory);
     }
-  }, [color, hat, glasses, ears, projectileColor]);
+
+    if (trailRef.current) {
+      trailRef.current.dispose();
+      trailRef.current = null;
+    }
+    if (sceneRef.current) {
+      trailRef.current = new TrailEmitter(
+        sceneRef.current,
+        getTrailDefinitions(accessoriesKey.split("|").filter(Boolean))
+      );
+    }
+  }, [color, accessoriesKey, projectileColor]);
 
   return (
     <canvas

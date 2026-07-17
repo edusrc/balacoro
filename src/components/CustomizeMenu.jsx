@@ -5,12 +5,7 @@ import {
   loadCustomization,
   saveCustomization,
 } from "../core/customization.js";
-import {
-  PLAYER_COLORS,
-  HAT_OPTIONS,
-  GLASSES_OPTIONS,
-  EAR_OPTIONS,
-} from "../core/cosmetics.js";
+import { PLAYER_COLORS, ACCESSORY_CATEGORIES } from "../core/cosmetics.js";
 import {
   getCoins,
   spendCoins,
@@ -19,18 +14,36 @@ import {
 } from "../core/wallet.js";
 import { audio } from "../core/AudioEngine.js";
 
+const CUSTOMIZE_CSS = `
+  .cosmetic-scroll {
+    max-height: 260px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: #ffee00 rgba(255, 255, 255, 0.08);
+  }
+  .cosmetic-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  .cosmetic-scroll::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+  }
+  .cosmetic-scroll::-webkit-scrollbar-thumb {
+    background: #ffee00;
+    border-radius: 4px;
+    box-shadow: 0 0 6px rgba(255, 238, 0, 0.6);
+  }
+`;
+
 const TABS = [
   { id: "color", label: "COLOR" },
-  { id: "hat", label: "HAT" },
-  { id: "glasses", label: "GLASSES" },
-  { id: "ears", label: "EARS" },
+  ...ACCESSORY_CATEGORIES.map(({ id, label }) => ({ id, label })),
 ];
-
-const COSMETIC_TABS = {
-  hat: HAT_OPTIONS,
-  glasses: GLASSES_OPTIONS,
-  ears: EAR_OPTIONS,
-};
 
 export default function CustomizeMenu({ onBack }) {
   const [customization, setCustomization] = useState(loadCustomization);
@@ -43,41 +56,99 @@ export default function CustomizeMenu({ onBack }) {
     saveCustomization(next);
   };
 
-  const selectCosmetic = (kind, option) => {
-    if (isOwned(kind, option.id)) {
+  const effectIds = new Set(
+    ACCESSORY_CATEGORIES.find((category) => category.id === "effect").options.map(
+      (option) => option.id
+    )
+  );
+
+  const toggleAccessory = (option) => {
+    const accessories = customization.accessories ?? [];
+    const isEffect = option.kind === "effect";
+    if (accessories.includes(option.id)) {
       audio.play("uiClick");
-      update({ [kind]: option.id });
+      update({ accessories: accessories.filter((id) => id !== option.id) });
+      return;
+    }
+    const withOption = (list) =>
+      isEffect
+        ? [...list.filter((id) => !effectIds.has(id)), option.id]
+        : [...list, option.id];
+    if (isOwned(option.kind, option.id)) {
+      audio.play("uiClick");
+      update({ accessories: withOption(accessories) });
       return;
     }
     if (spendCoins(option.price)) {
       audio.play("uiBuy");
-      unlockCosmetic(kind, option.id);
+      unlockCosmetic(option.kind, option.id);
       setCoins(getCoins());
-      update({ [kind]: option.id });
+      update({ accessories: withOption(accessories) });
     }
   };
 
-  const renderCosmeticList = (kind) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-      {COSMETIC_TABS[kind].map((option) => {
-        const owned = isOwned(kind, option.id);
+  const renderSwatches = (selectedColor, patchKey) => (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "10px",
+        maxWidth: "220px",
+      }}
+    >
+      {PLAYER_COLORS.map((color) => (
+        <button
+          key={color}
+          className={`swatch${selectedColor === color ? " selected" : ""}`}
+          style={{
+            background: `#${color.toString(16).padStart(6, "0")}`,
+          }}
+          onMouseEnter={() => audio.play("uiHover")}
+          onClick={() => {
+            audio.play("uiClick");
+            update({ [patchKey]: color });
+          }}
+        />
+      ))}
+    </div>
+  );
+
+  const activeCategory = ACCESSORY_CATEGORIES.find(
+    (category) => category.id === tab
+  );
+
+  const renderAccessoryList = (options) => (
+    <div className="cosmetic-scroll">
+      {options.map((option) => {
+        const active = (customization.accessories ?? []).includes(option.id);
+        const owned = isOwned(option.kind, option.id);
         const affordable = coins >= option.price;
         return (
           <button
             key={option.id}
-            className={`menu-button${
-              customization[kind] === option.id ? " selected" : ""
-            }`}
+            className={`menu-button${active ? " selected" : ""}`}
             style={{
-              fontSize: "14px",
+              fontSize: "13px",
               display: "flex",
               alignItems: "center",
               gap: "10px",
               opacity: owned || affordable ? 1 : 0.45,
+              flexShrink: 0,
+              width: "100%",
+              boxSizing: "border-box",
             }}
             onMouseEnter={() => audio.play("uiHover")}
-            onClick={() => selectCosmetic(kind, option)}
+            onClick={() => toggleAccessory(option)}
           >
+            <span style={{ fontSize: "15px" }}>
+              {option.kind === "effect"
+                ? active
+                  ? "◉"
+                  : "○"
+                : active
+                  ? "☑"
+                  : "☐"}
+            </span>
             <span>{option.label}</span>
             {!owned && (
               <span
@@ -110,12 +181,11 @@ export default function CustomizeMenu({ onBack }) {
       }}
     >
       <style>{MENU_CSS}</style>
+      <style>{CUSTOMIZE_CSS}</style>
 
       <MenuStage
         color={customization.color}
-        hat={customization.hat}
-        glasses={customization.glasses}
-        ears={customization.ears}
+        accessories={customization.accessories}
         projectileColor={customization.projectileColor}
       />
 
@@ -159,7 +229,7 @@ export default function CustomizeMenu({ onBack }) {
           </div>
         </div>
 
-        <div style={{ pointerEvents: "auto", maxWidth: "340px" }}>
+        <div style={{ pointerEvents: "auto", maxWidth: "360px" }}>
           <div style={{ display: "flex", gap: "18px", marginBottom: "24px" }}>
             {TABS.map((t) => (
               <button
@@ -177,85 +247,40 @@ export default function CustomizeMenu({ onBack }) {
           </div>
 
           {tab === "color" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              <div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "#888",
-                    letterSpacing: "2px",
-                    marginBottom: "10px",
-                  }}
-                >
-                  CUBE
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "10px",
-                    maxWidth: "200px",
-                  }}
-                >
-                  {PLAYER_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      className={`swatch${
-                        customization.color === color ? " selected" : ""
-                      }`}
-                      style={{
-                        background: `#${color.toString(16).padStart(6, "0")}`,
-                      }}
-                      onClick={() => update({ color })}
-                    />
-                  ))}
-                </div>
+            <div>
+              <div
+                style={{
+                  fontSize: "9px",
+                  color: "#888",
+                  letterSpacing: "2px",
+                  margin: "0 0 8px",
+                }}
+              >
+                CUBE
               </div>
-              <div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "#888",
-                    letterSpacing: "2px",
-                    marginBottom: "10px",
-                  }}
-                >
-                  SHOT
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "10px",
-                    maxWidth: "200px",
-                  }}
-                >
-                  {PLAYER_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      className={`swatch${
-                        customization.projectileColor === color
-                          ? " selected"
-                          : ""
-                      }`}
-                      style={{
-                        background: `#${color.toString(16).padStart(6, "0")}`,
-                      }}
-                      onClick={() => update({ projectileColor: color })}
-                    />
-                  ))}
-                </div>
+              {renderSwatches(customization.color, "color")}
+              <div
+                style={{
+                  fontSize: "9px",
+                  color: "#888",
+                  letterSpacing: "2px",
+                  margin: "14px 0 8px",
+                }}
+              >
+                SHOT
               </div>
+              {renderSwatches(
+                customization.projectileColor,
+                "projectileColor"
+              )}
             </div>
           )}
 
-          {tab === "hat" && renderCosmeticList("hat")}
-          {tab === "glasses" && renderCosmeticList("glasses")}
-          {tab === "ears" && renderCosmeticList("ears")}
+          {activeCategory && renderAccessoryList(activeCategory.options)}
 
           <button
             className="menu-button"
-            style={{ marginTop: "36px", fontSize: "14px" }}
+            style={{ marginTop: "30px", fontSize: "14px" }}
             onMouseEnter={() => audio.play("uiHover")}
             onClick={() => {
               audio.play("uiClick");

@@ -16,6 +16,8 @@ import {
   MIMIC_DISGUISE_COLOR,
   MIMIC_LID_DISGUISE_COLOR,
 } from "../objects/Mimic.js";
+import { SKULL_CRAZE_START } from "../objects/MonsterGenome.js";
+import DifficultySkull from "./DifficultySkull.jsx";
 import {
   BOSS_SIZE_MULTIPLIER,
   BOSS_HEALTH_MULTIPLIER,
@@ -52,6 +54,7 @@ const MONSTER_TYPES = [
   { id: "enemy", label: "ENEMY" },
   { id: "boss", label: "BOSS" },
   { id: "mimic", label: "MIMIC" },
+  { id: "skull", label: "SKULL" },
 ];
 
 const BEAM_HEIGHT = 4.6;
@@ -456,6 +459,7 @@ export default function MonsterLabMenu({ onBack }) {
   const [bloodMoon, setBloodMoon] = useState(false);
   const [genome, setGenome] = useState(() => generateGenome(false));
   const [mimicAwake, setMimicAwake] = useState(false);
+  const [skullPower, setSkullPower] = useState(0);
 
   const isBossType = monsterType === "boss";
   const availableArchetypes = isBossType
@@ -474,7 +478,7 @@ export default function MonsterLabMenu({ onBack }) {
 
   const switchMonsterType = (type) => {
     setMonsterType(type);
-    if (type === "mimic") {
+    if (type === "mimic" || type === "skull") {
       return;
     }
     setArchetype(null);
@@ -503,7 +507,27 @@ export default function MonsterLabMenu({ onBack }) {
     >
       <style>{MENU_CSS}</style>
 
-      {monsterType === "mimic" ? (
+      {monsterType === "skull" ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "#08080e",
+          }}
+        >
+          <DifficultySkull
+            power={skullPower}
+            progress={skullPower}
+            size={260}
+            style={{
+              bottom: "auto",
+              left: "55%",
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+            }}
+          />
+        </div>
+      ) : monsterType === "mimic" ? (
         <MimicStage difficulty={difficulty} awake={mimicAwake} />
       ) : (
         <MonsterStage
@@ -570,7 +594,62 @@ export default function MonsterLabMenu({ onBack }) {
             ))}
           </div>
 
-          {monsterType === "mimic" ? (
+          {monsterType === "skull" ? (
+            <>
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  fontSize: "9px",
+                  color: "#888",
+                  letterSpacing: "1px",
+                  lineHeight: "1.8",
+                  maxWidth: "460px",
+                }}
+              >
+                The difficulty meter
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <LabSlider
+                  label="SKULL POWER"
+                  value={skullPower}
+                  min={0}
+                  max={DIFFICULTY_COLOR_MAX_LEVEL}
+                  step={1}
+                  onChange={setSkullPower}
+                />
+              </div>
+
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  display: "flex",
+                  gap: "10px",
+                }}
+              >
+                <button
+                  className="menu-button"
+                  style={{ fontSize: "13px" }}
+                  onClick={() =>
+                    setSkullPower((power) => Math.max(power - 1, 0))
+                  }
+                >
+                  &lt; PREV
+                </button>
+                <button
+                  className="menu-button"
+                  style={{ fontSize: "13px" }}
+                  onClick={() =>
+                    setSkullPower((power) =>
+                      Math.min(power + 1, DIFFICULTY_COLOR_MAX_LEVEL)
+                    )
+                  }
+                >
+                  NEXT &gt;
+                </button>
+              </div>
+            </>
+          ) : monsterType === "mimic" ? (
             <>
               <div
                 style={{

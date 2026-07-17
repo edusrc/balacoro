@@ -9,6 +9,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { setFloatingTextCamera } from "../components/createFloatingText.js";
 import { isDebugMode } from "../core/debug.js";
 import { audio } from "../core/AudioEngine.js";
+import { setNightLights } from "../core/biomes/lightMaterials.js";
 import {
   DAY_DURATION,
   NIGHT_DURATION,
@@ -28,17 +29,39 @@ import {
 const TOTAL_CYCLE = DAY_DURATION + NIGHT_DURATION;
 
 export class Game {
-  constructor(container) {
+  constructor(container, savedRun = null) {
     this.container = container;
+    this.savedRun = savedRun;
     this.startTime = Date.now() - (DAY_DURATION / 2) * 1000;
     this.totalElapsedTime = DAY_DURATION / 2;
     this.lastFrameTime = Date.now();
     this.init();
   }
 
+  createSaveSnapshot() {
+    return {
+      scene: this.scene.createSnapshot(),
+      game: {
+        totalElapsedTime: this.totalElapsedTime,
+        nightCount: this.nightCount ?? 0,
+        bloodMoonEnded: this.bloodMoonEnded === true,
+      },
+    };
+  }
+
   init() {
     this.initRenderer();
     this.initSceneAndCamera();
+    if (this.savedRun) {
+      this.scene.restoreSnapshot(this.savedRun.scene);
+      this.totalElapsedTime =
+        this.savedRun.game?.totalElapsedTime ?? this.totalElapsedTime;
+      this.nightCount = this.savedRun.game?.nightCount ?? 0;
+      this.bloodMoonEnded = this.savedRun.game?.bloodMoonEnded === true;
+      const cycleProgress =
+        (this.totalElapsedTime % TOTAL_CYCLE) / TOTAL_CYCLE;
+      this._wasNight = cycleProgress >= DAY_DURATION / TOTAL_CYCLE;
+    }
     this.initLights();
     this.initSky();
     this.initPostProcessing();
@@ -438,6 +461,7 @@ export class Game {
 
     const elevation = smoothProgress * 75;
     this.isNight = smoothProgress === 0;
+    setNightLights(this.isNight);
 
     if (this.isNight && !this._wasNight) {
       this.nightCount = (this.nightCount ?? 0) + 1;

@@ -4,11 +4,10 @@ import {
   getDifficultyColor,
   getDifficultyColorStyle,
   DIFFICULTY_COLOR_MAX_LEVEL,
+  SKULL_CRAZE_START,
 } from "../objects/MonsterGenome.js";
 
-const SIZE = 96;
-const RING_THICKNESS = 7;
-const CRAZE_START = DIFFICULTY_COLOR_MAX_LEVEL - 6;
+const CRAZE_START = SKULL_CRAZE_START;
 const CRAZE_FULL = DIFFICULTY_COLOR_MAX_LEVEL;
 
 function crazeAmount(power) {
@@ -199,7 +198,14 @@ function buildSkull() {
   };
 }
 
-export default function DifficultySkull({ power = 0, progress = power }) {
+export default function DifficultySkull({
+  power = 0,
+  progress = power,
+  size = 96,
+  style,
+}) {
+  const SIZE = size;
+  const RING_THICKNESS = Math.max(Math.round(size / 14), 5);
   const canvasRef = useRef(null);
   const powerRef = useRef(power);
   const skullRef = useRef(null);
@@ -333,6 +339,7 @@ export default function DifficultySkull({ power = 0, progress = power }) {
         height: `${wrapperSize}px`,
         pointerEvents: "none",
         zIndex: 15,
+        ...style,
       }}
     >
       <style>{`

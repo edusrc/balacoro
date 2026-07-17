@@ -8,6 +8,10 @@ import { Item } from "../objects/Item.js";
 import { showDamageText } from "../components/DamageText.js";
 import { audio } from "../core/AudioEngine.js";
 import {
+  DIFFICULTY_COLOR_MAX_LEVEL,
+  SKULL_CRAZE_START,
+} from "../objects/MonsterGenome.js";
+import {
   PLAYER_RADIUS,
   ENEMY_SPAWN_INTERVAL,
   BASE_ENEMY_HEALTH,
@@ -34,6 +38,7 @@ import {
   BOSS_HEALTH_MULTIPLIER,
   BOSS_SPEED,
   BOSS_SPAWN_EVERY_LEVELS,
+  POST_MAX_BOSS_CHANCE_PER_LEVEL,
 } from "../constants.js";
 export class MainScene extends THREE.Scene {
   constructor() {
@@ -96,10 +101,84 @@ export class MainScene extends THREE.Scene {
           level: this.player.level,
           elapsedTime: this.elapsedTime,
           coins: this.coinsEarned,
+          power: this.currentDifficulty,
         });
       }
     };
     this.add(this.player);
+  }
+
+  createSnapshot() {
+    return {
+      elapsedTime: this.elapsedTime,
+      coinsEarned: this.coinsEarned,
+      highestBossDifficultySpawned: this.highestBossDifficultySpawned,
+      worldSeed: this.tileManager.seed,
+      player: this.player.captureState(),
+      enemies: this.enemies
+        .filter((enemy) => !enemy.isDying)
+        .map((enemy) => enemy.captureState()),
+    };
+  }
+
+  restoreSnapshot(snapshot) {
+    if (!snapshot) {
+      return;
+    }
+    this.elapsedTime = snapshot.elapsedTime ?? 0;
+    this.coinsEarned = snapshot.coinsEarned ?? 0;
+    this.highestBossDifficultySpawned =
+      snapshot.highestBossDifficultySpawned ?? 0;
+    if (snapshot.worldSeed != null) {
+      this.tileManager = new WorldTileManager(this, 20, snapshot.worldSeed);
+    }
+    if (snapshot.player) {
+      this.player.restoreState(snapshot.player);
+    }
+    if (Array.isArray(snapshot.enemies)) {
+      for (const enemyState of snapshot.enemies) {
+        this._restoreEnemy(enemyState);
+      }
+    }
+  }
+
+  _restoreEnemy(state) {
+    if (!state?.position) {
+      return;
+    }
+    const position = new THREE.Vector3(state.position.x, 0, state.position.z);
+    const power = state.difficulty ?? 0;
+    const baseHealth = BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH;
+
+    let enemy;
+    if (state.kind === "mimic") {
+      enemy = new Mimic(
+        this.player,
+        position,
+        4.5,
+        baseHealth * MIMIC_HEALTH_MULTIPLIER,
+        power
+      );
+      enemy.maxHealth = state.maxHealth ?? enemy.maxHealth;
+      enemy.health = Math.min(state.health ?? enemy.maxHealth, enemy.maxHealth);
+      if (!state.isDormant) {
+        enemy.wake();
+      }
+    } else {
+      const isBoss = state.kind === "boss";
+      enemy = new Enemy(
+        this.player,
+        position,
+        isBoss ? BOSS_SPEED : 4,
+        baseHealth * (isBoss ? BOSS_HEALTH_MULTIPLIER : 1),
+        power,
+        isBoss,
+        undefined,
+        state
+      );
+    }
+    this.add(enemy);
+    this.enemies.push(enemy);
   }
 
   addCoins(amount) {
@@ -243,6 +322,18 @@ export class MainScene extends THREE.Scene {
   }
 
   _spawnEnemy(difficulty) {
+    const postMaxLevels = Math.max(
+      this.currentDifficulty - DIFFICULTY_COLOR_MAX_LEVEL,
+      0
+    );
+    if (
+      postMaxLevels > 0 &&
+      Math.random() < postMaxLevels * POST_MAX_BOSS_CHANCE_PER_LEVEL
+    ) {
+      this._spawnBoss(difficulty, { announce: false, canSummon: false });
+      return;
+    }
+
     const spawnPosition = this._getRandomSpawnAroundPlayer(
       ENEMY_SPAWN_DISTANCE.min,
       ENEMY_SPAWN_DISTANCE.max
@@ -276,7 +367,7 @@ export class MainScene extends THREE.Scene {
     }
   }
 
-  _spawnBoss(difficulty) {
+  _spawnBoss(difficulty, options = {}) {
     const spawnPosition = this._getRandomSpawnAroundPlayer(
       ENEMY_SPAWN_DISTANCE.min,
       ENEMY_SPAWN_DISTANCE.max
@@ -293,11 +384,14 @@ export class MainScene extends THREE.Scene {
       power,
       true
     );
+    boss.canSummon = options.canSummon ?? true;
     this.add(boss);
     this.enemies.push(boss);
 
-    audio.play("bossSpawn");
-    this._announce("A BOSS HAS APPEARED", "#ff3333", "☠", "IT HUNTS YOU");
+    if (options.announce !== false) {
+      audio.play("bossSpawn");
+      this._announce("A BOSS HAS APPEARED", "#ff3333", "☠", "IT HUNTS YOU");
+    }
   }
 
   _announce(text, color, icon, sub) {
@@ -616,6 +710,10 @@ export class MainScene extends THREE.Scene {
       this._evilLaughPlayed = true;
       audio.play("evilLaugh");
     }
+    audio.setScheduler(
+      "evilLaugh",
+      this.currentDifficulty >= SKULL_CRAZE_START
+    );
 
     if (this.isFullMoon && !this._fullMoonAnnounced) {
       this._fullMoonAnnounced = true;

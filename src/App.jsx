@@ -3,6 +3,7 @@ import { Game } from "./threejs/Game";
 import MainMenu from "./components/MainMenu.jsx";
 import CustomizeMenu from "./components/CustomizeMenu.jsx";
 import MonsterLabMenu from "./components/MonsterLabMenu.jsx";
+import OptionsMenu from "./components/OptionsMenu.jsx";
 import LevelUpModal from "./components/LevelUpModal.jsx";
 import SkillChoiceModal from "./components/SkillChoiceModal.jsx";
 import CoinIcon from "./components/CoinIcon.jsx";
@@ -10,6 +11,8 @@ import Banner from "./components/Banner.jsx";
 import DifficultySkull from "./components/DifficultySkull.jsx";
 import { addCoins as bankCoins } from "./core/wallet.js";
 import { isDebugMode } from "./core/debug.js";
+import { saveRun, loadRun, clearRun, hasRun } from "./core/saveGame.js";
+import { addRunToHistory, formatDuration } from "./core/history.js";
 import { audio } from "./core/AudioEngine.js";
 
 export default function App() {
@@ -24,10 +27,14 @@ export default function App() {
   const [skillChoices, setSkillChoices] = useState(null);
   const [banner, setBanner] = useState(null);
   const [volumes, setVolumes] = useState(() => ({ ...audio.userVolumes }));
+  const [continuePrompt, setContinuePrompt] = useState(false);
+  const pendingLoadRef = useRef(null);
 
   const changeVolume = (key, value) => {
     if (key === "master") {
       audio.setMasterVolume(value);
+    } else if (key === "music") {
+      audio.setMusicVolume(value);
     } else {
       audio.setEffectsVolume(value);
     }
@@ -90,12 +97,21 @@ export default function App() {
       return undefined;
     }
 
-    const game = new Game(threeRef.current);
+    const game = new Game(threeRef.current, pendingLoadRef.current);
+    pendingLoadRef.current = null;
     gameRef.current = game;
     game.scene.onGameOver = (finalStats) => {
       setGameOver(true);
       setGameOverStats(finalStats);
       bankCoins(finalStats.coins ?? 0);
+      clearRun();
+      addRunToHistory({
+        level: finalStats.level ?? 1,
+        time: finalStats.elapsedTime ?? 0,
+        coins: Math.floor(finalStats.coins ?? 0),
+        power: finalStats.power ?? 0,
+        date: Date.now(),
+      });
       audio.setPaused(true);
       audio.playMusic("musicGameOver");
     };
@@ -278,17 +294,123 @@ export default function App() {
   }
 
   if (screen === "menu") {
+    const savedGame = continuePrompt ? loadRun() : null;
     return (
-      <MainMenu
-        onPlay={() => setScreen("game")}
-        onCustomize={() => setScreen("customize")}
-        onMonsterLab={() => setScreen("monsterlab")}
-      />
+      <>
+        <MainMenu
+          onPlay={() => {
+            if (hasRun()) {
+              setContinuePrompt(true);
+            } else {
+              setScreen("game");
+            }
+          }}
+          onCustomize={() => setScreen("customize")}
+          onMonsterLab={() => setScreen("monsterlab")}
+          onOptions={() => setScreen("options")}
+        />
+        {continuePrompt && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0, 0, 0, 0.8)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 200,
+              fontFamily: '"Press Start 2P", monospace',
+              color: "#fff",
+            }}
+          >
+            <div
+              style={{
+                background: "#101018",
+                border: "2px solid #ffee00",
+                borderRadius: "10px",
+                padding: "28px 32px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "18px",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: "16px", color: "#ffee00" }}>
+                SAVED RUN FOUND
+              </div>
+              <div
+                style={{
+                  fontSize: "10px",
+                  color: "#aaa",
+                  letterSpacing: "1px",
+                  lineHeight: "1.8",
+                }}
+              >
+                LEVEL {savedGame?.scene?.player?.level ?? "?"} •{" "}
+                {formatDuration(savedGame?.scene?.elapsedTime ?? 0)} •{" "}
+                {Math.floor(savedGame?.scene?.coinsEarned ?? 0)} COINS
+              </div>
+              <div style={{ display: "flex", gap: "14px" }}>
+                <button
+                  onMouseEnter={() => audio.play("uiHover")}
+                  onClick={() => {
+                    audio.play("uiClick");
+                    pendingLoadRef.current = loadRun();
+                    clearRun();
+                    setContinuePrompt(false);
+                    setScreen("game");
+                  }}
+                  style={{
+                    fontFamily: '"Press Start 2P", monospace',
+                    fontSize: "12px",
+                    padding: "12px 20px",
+                    background: "#ffee00",
+                    color: "#000",
+                    border: "none",
+                    cursor: "pointer",
+                    borderRadius: "4px",
+                    letterSpacing: "2px",
+                  }}
+                >
+                  CONTINUE
+                </button>
+                <button
+                  onMouseEnter={() => audio.play("uiHover")}
+                  onClick={() => {
+                    audio.play("uiClick");
+                    clearRun();
+                    setContinuePrompt(false);
+                    setScreen("game");
+                  }}
+                  style={{
+                    fontFamily: '"Press Start 2P", monospace',
+                    fontSize: "12px",
+                    padding: "12px 20px",
+                    background: "transparent",
+                    color: "#fff",
+                    border: "2px solid #fff",
+                    cursor: "pointer",
+                    borderRadius: "4px",
+                    letterSpacing: "2px",
+                  }}
+                >
+                  NEW GAME
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
   if (screen === "customize") {
     return <CustomizeMenu onBack={() => setScreen("menu")} />;
+  }
+
+  if (screen === "options") {
+    return <OptionsMenu onBack={() => setScreen("menu")} />;
   }
 
   if (screen === "monsterlab") {
@@ -969,6 +1091,30 @@ export default function App() {
             onMouseEnter={() => audio.play("uiHover")}
             onClick={() => {
               audio.play("uiClick");
+              if (gameRef.current) {
+                saveRun(gameRef.current.createSaveSnapshot());
+                returnToMenu();
+              }
+            }}
+            style={{
+              fontFamily: '"Press Start 2P", monospace',
+              fontSize: "14px",
+              padding: "14px 28px",
+              marginBottom: "16px",
+              background: "#ffee00",
+              color: "#000",
+              border: "none",
+              cursor: "pointer",
+              borderRadius: "4px",
+              letterSpacing: "2px",
+            }}
+          >
+            SAVE &amp; QUIT
+          </button>
+          <button
+            onMouseEnter={() => audio.play("uiHover")}
+            onClick={() => {
+              audio.play("uiClick");
               returnToMenu();
             }}
             style={{
@@ -1010,7 +1156,7 @@ export default function App() {
               OPTIONS
             </div>
             {[
-              { key: "master", label: "SOUND" },
+              { key: "music", label: "MUSIC" },
               { key: "effects", label: "EFFECTS" },
             ].map(({ key, label }) => (
               <label
@@ -1076,7 +1222,10 @@ export default function App() {
             Level: {gameOverStats.level}
           </p>
           <p style={{ fontSize: "16px", marginBottom: "12px" }}>
-            Time: {gameOverStats.elapsedTime?.toFixed(1)}s
+            Time: {formatDuration(gameOverStats.elapsedTime ?? 0)}
+          </p>
+          <p style={{ fontSize: "16px", marginBottom: "12px" }}>
+            Difficulty: {gameOverStats.power ?? 0}
           </p>
           <p
             style={{

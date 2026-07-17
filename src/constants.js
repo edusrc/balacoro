@@ -152,6 +152,8 @@ export const NIGHT_DURATION = 180;
 export const ENABLE_MINI_VIEW = true;
 
 export const ELITE_CHANCE = 0.005;
+export const POST_MAX_ELITE_CHANCE_PER_LEVEL = 0.01;
+export const POST_MAX_BOSS_CHANCE_PER_LEVEL = 0.004;
 export const ELITE_HEALTH_MULTIPLIER = 5;
 export const ELITE_DAMAGE_MULTIPLIER = 2;
 export const ELITE_SIZE_MULTIPLIER = 1.45;

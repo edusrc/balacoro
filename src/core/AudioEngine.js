@@ -18,15 +18,15 @@ export class AudioEngine {
     this.pendingMusicName = undefined;
     this.paused = false;
 
-    this.userVolumes = { master: 1, effects: 1 };
+    this.userVolumes = { master: 1, music: 1, effects: 1 };
     try {
       const saved = JSON.parse(localStorage.getItem(VOLUME_STORAGE_KEY));
       if (saved) {
-        this.userVolumes.master = saved.master ?? 1;
+        this.userVolumes.music = saved.music ?? 1;
         this.userVolumes.effects = saved.effects ?? 1;
       }
     } catch {
-      this.userVolumes = { master: 1, effects: 1 };
+      this.userVolumes = { master: 1, music: 1, effects: 1 };
     }
 
     const resume = () => {
@@ -63,7 +63,8 @@ export class AudioEngine {
     this.duckGain.connect(this.muffleFilter);
 
     this.musicGain = context.createGain();
-    this.musicGain.gain.value = this.globals.musicVolume;
+    this.musicGain.gain.value =
+      this.globals.musicVolume * this.userVolumes.music;
     this.musicGain.connect(this.duckGain);
 
     this.ambienceGain = context.createGain();
@@ -102,6 +103,19 @@ export class AudioEngine {
     if (this.context) {
       this.masterGain.gain.setTargetAtTime(
         this.globals.masterVolume * clamped,
+        this.context.currentTime,
+        0.05
+      );
+    }
+  }
+
+  setMusicVolume(value) {
+    const clamped = Math.min(Math.max(value, 0), 1);
+    this.userVolumes.music = clamped;
+    this._saveVolumes();
+    if (this.context) {
+      this.musicGain.gain.setTargetAtTime(
+        this.globals.musicVolume * clamped,
         this.context.currentTime,
         0.05
       );

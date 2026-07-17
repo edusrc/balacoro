@@ -25,6 +25,7 @@ import {
   CRITICAL_FLASH_COLOR,
   CRITICAL_PUNCH_SCALE,
   FULL_MOON_SPEED_MULTIPLIER,
+  POST_MAX_ELITE_CHANCE_PER_LEVEL,
 } from "../constants.js";
 import {
   generateGenome,
@@ -32,6 +33,7 @@ import {
   getBodyMaterial,
   eyeDayMaterial,
   eyeNightMaterial,
+  DIFFICULTY_COLOR_MAX_LEVEL,
 } from "./MonsterGenome.js";
 import { audio } from "../core/AudioEngine.js";
 
@@ -65,12 +67,20 @@ export class Enemy extends THREE.Object3D {
     health = 1,
     difficulty = 0,
     isBoss = false,
-    forcedArchetype = undefined
+    forcedArchetype = undefined,
+    savedState = null
   ) {
     super();
     this.target = target;
-    this.genome = generateGenome(isBoss, forcedArchetype);
-    this.isElite = !isBoss && Math.random() < ELITE_CHANCE;
+    this.genome = savedState?.genome ?? generateGenome(isBoss, forcedArchetype);
+    const eliteChance =
+      ELITE_CHANCE +
+      Math.max(difficulty - DIFFICULTY_COLOR_MAX_LEVEL, 0) *
+        POST_MAX_ELITE_CHANCE_PER_LEVEL;
+    this.isElite = savedState
+      ? savedState.isElite === true
+      : !isBoss && Math.random() < eliteChance;
+    this.canSummon = savedState?.canSummon ?? true;
     this.speed =
       speed * this.genome.speedMult * (this.isElite ? ELITE_SPEED_MULTIPLIER : 1);
     this.maxHealth = Math.max(
@@ -161,9 +171,31 @@ export class Enemy extends THREE.Object3D {
 
     this.position.copy(spawnPosition);
 
+    if (savedState) {
+      this.maxHealth = savedState.maxHealth ?? this.maxHealth;
+      this.health = Math.min(
+        savedState.health ?? this.maxHealth,
+        this.maxHealth
+      );
+    }
+
     setTimeout(() => {
       this.createHealthBar();
     }, 0);
+  }
+
+  captureState() {
+    return {
+      kind: this.isMimic ? "mimic" : this.isBoss ? "boss" : "enemy",
+      position: { x: this.position.x, z: this.position.z },
+      difficulty: this.difficulty,
+      health: this.health,
+      maxHealth: this.maxHealth,
+      isElite: this.isElite,
+      canSummon: this.canSummon,
+      isDormant: this.isDormant === true,
+      genome: this.genome,
+    };
   }
 
   createHealthBar() {
@@ -400,7 +432,8 @@ export class Enemy extends THREE.Object3D {
         this.bossCooldown <= 0 &&
         distSq < BOSS_SPECIAL_RANGE * BOSS_SPECIAL_RANGE
       ) {
-        this.bossState = Math.random() < 0.6 ? "telegraph" : "summon";
+        this.bossState =
+          Math.random() < 0.6 || !this.canSummon ? "telegraph" : "summon";
         this.bossStateTime = 0;
         if (this.bossState === "telegraph") {
           audio.play("bossTelegraph", { position: this.position });
