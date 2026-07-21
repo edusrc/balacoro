@@ -132,7 +132,7 @@ export const SOUND_CONFIG = {
       enabled: true,
       type: "effect",
       files: ["player-levelup.mp3"],
-      maxVolume: 0.8,
+      maxVolume: 0.5,
       loop: false,
       pauseExempt: true,
     },

@@ -9,6 +9,7 @@ export class InputController {
       KeyE: false,
       Space: false,
     };
+    this.moveVector = { x: 0, z: 0 };
 
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -25,4 +26,19 @@ export class InputController {
       this.keys[event.code] = false;
     }
   };
+
+  setMoveVector(x, z) {
+    this.moveVector.x = x;
+    this.moveVector.z = z;
+  }
+
+  tapKey(code, holdMs = 90) {
+    if (this.keys[code] === undefined) {
+      return;
+    }
+    this.keys[code] = true;
+    setTimeout(() => {
+      this.keys[code] = false;
+    }, holdMs);
+  }
 }

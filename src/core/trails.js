@@ -1,57 +1,57 @@
 import * as THREE from "three";
 
 export const TRAIL_OPTIONS = [
-  { id: "fire", label: "FIRE TRAIL", price: 400 },
-  { id: "ice", label: "ICE TRAIL", price: 400 },
-  { id: "poison", label: "POISON TRAIL", price: 450 },
-  { id: "lightning", label: "LIGHTNING TRAIL", price: 500 },
-  { id: "shadow", label: "SHADOW TRAIL", price: 600 },
-  { id: "rainbow", label: "RAINBOW TRAIL", price: 1000 },
+  { id: "fire", label: "FIRE TRAIL", price: 1000000 },
+  { id: "ice", label: "ICE TRAIL", price: 1000000 },
+  { id: "poison", label: "POISON TRAIL", price: 1000000 },
+  { id: "lightning", label: "LIGHTNING TRAIL", price: 1000000 },
+  { id: "shadow", label: "SHADOW TRAIL", price: 1000000 },
+  { id: "rainbow", label: "RAINBOW TRAIL", price: 1000000 },
 ];
 
 const TRAIL_DEFS = {
   fire: {
     colors: [0xff5a1f, 0xff9a00, 0xffd23e],
-    size: 0.16,
+    size: 0.3,
     lifetime: 0.55,
     rise: 1.4,
-    spread: 0.24,
+    spread: 0.26,
   },
   ice: {
     colors: [0x9be8ff, 0x62c4ff, 0xffffff],
-    size: 0.13,
+    size: 0.26,
     lifetime: 0.85,
     rise: 0.25,
-    spread: 0.3,
+    spread: 0.32,
   },
   poison: {
     colors: [0x59d13a, 0x2e8b22, 0x9bff5a],
-    size: 0.15,
+    size: 0.28,
     lifetime: 0.7,
     rise: 0.7,
-    spread: 0.28,
+    spread: 0.3,
   },
   lightning: {
     colors: [0xffef5a, 0xfff7b0, 0x9adfff],
-    size: 0.1,
+    size: 0.2,
     lifetime: 0.3,
     rise: 0.4,
-    spread: 0.42,
+    spread: 0.46,
     jitter: true,
   },
   shadow: {
     colors: [0x35244d, 0x1a1424, 0x0d0d14],
-    size: 0.2,
+    size: 0.36,
     lifetime: 0.95,
     rise: 0.35,
-    spread: 0.3,
+    spread: 0.32,
   },
   rainbow: {
     rainbow: true,
-    size: 0.15,
+    size: 0.3,
     lifetime: 0.7,
     rise: 0.8,
-    spread: 0.3,
+    spread: 0.32,
   },
 };
 
@@ -63,9 +63,10 @@ const particleGeometry = new THREE.BoxGeometry(1, 1, 1);
 const SPAWN_INTERVAL = 0.055;
 
 export class TrailEmitter {
-  constructor(scene, defs) {
+  constructor(scene, defs, options = {}) {
     this.scene = scene;
     this.defs = defs;
+    this.wind = options.wind ?? null;
     this.particles = [];
     this.spawnTimer = 0;
     this.time = 0;
@@ -137,9 +138,9 @@ export class TrailEmitter {
       size: def.size,
       jitter: def.jitter === true,
       velocity: new THREE.Vector3(
-        (Math.random() - 0.5) * 0.35,
+        (Math.random() - 0.5) * 0.35 + (this.wind?.x ?? 0),
         def.rise,
-        (Math.random() - 0.5) * 0.35
+        (Math.random() - 0.5) * 0.35 + (this.wind?.z ?? 0)
       ),
     });
   }

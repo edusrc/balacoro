@@ -10,6 +10,7 @@ import { setFloatingTextCamera } from "../components/createFloatingText.js";
 import { isDebugMode } from "../core/debug.js";
 import { audio } from "../core/AudioEngine.js";
 import { setNightLights } from "../core/biomes/lightMaterials.js";
+import { DIFFICULTY_COLOR_MAX_LEVEL } from "../objects/MonsterGenome.js";
 import {
   DAY_DURATION,
   NIGHT_DURATION,
@@ -27,6 +28,7 @@ import {
 } from "../constants";
 
 const TOTAL_CYCLE = DAY_DURATION + NIGHT_DURATION;
+const ETERNAL_BLOOD_MOON_DIFFICULTY = DIFFICULTY_COLOR_MAX_LEVEL + 5;
 
 export class Game {
   constructor(container, savedRun = null) {
@@ -470,11 +472,14 @@ export class Game {
     if (!this.isNight) {
       this.bloodMoonEnded = false;
     }
+    const eternalBloodMoon =
+      (this.scene.currentDifficulty ?? 0) >= ETERNAL_BLOOD_MOON_DIFFICULTY;
     this.isFullMoon =
       this.isNight &&
-      !this.bloodMoonEnded &&
-      (this.nightCount ?? 0) > 0 &&
-      this.nightCount % FULL_MOON_NIGHT_INTERVAL === 0;
+      (eternalBloodMoon ||
+        (!this.bloodMoonEnded &&
+          (this.nightCount ?? 0) > 0 &&
+          this.nightCount % FULL_MOON_NIGHT_INTERVAL === 0));
     this.scene.isFullMoon = this.isFullMoon;
 
     let hours;

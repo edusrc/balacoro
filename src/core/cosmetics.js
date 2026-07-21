@@ -10,28 +10,28 @@ export const PLAYER_COLORS = [
 
 export const HAT_OPTIONS = [
   { id: "none", label: "NONE", price: 0 },
-  { id: "cap", label: "CAP", price: 150 },
-  { id: "top", label: "TOP HAT", price: 300 },
-  { id: "cowboy", label: "COWBOY", price: 450 },
-  { id: "wizard", label: "WIZARD", price: 500 },
-  { id: "crown", label: "CROWN", price: 800 },
+  { id: "cap", label: "CAP", price: 1000 },
+  { id: "top", label: "TOP HAT", price: 3000 },
+  { id: "cowboy", label: "COWBOY", price: 6000 },
+  { id: "wizard", label: "WIZARD", price: 9000 },
+  { id: "crown", label: "CROWN", price: 45000 },
 ];
 
 export const GLASSES_OPTIONS = [
   { id: "none", label: "NONE", price: 0 },
-  { id: "nerd", label: "NERD", price: 200 },
-  { id: "sun", label: "SUNGLASSES", price: 250 },
-  { id: "monocle", label: "MONOCLE", price: 350 },
-  { id: "visor", label: "VISOR", price: 450 },
+  { id: "nerd", label: "NERD", price: 1500 },
+  { id: "sun", label: "SUNGLASSES", price: 2500 },
+  { id: "monocle", label: "MONOCLE", price: 5000 },
+  { id: "visor", label: "VISOR", price: 12000 },
 ];
 
 export const EAR_OPTIONS = [
   { id: "none", label: "NONE", price: 0 },
-  { id: "bear", label: "BEAR EARS", price: 250 },
-  { id: "cat", label: "CAT EARS", price: 300 },
-  { id: "horns", label: "HORNS", price: 350 },
-  { id: "elf", label: "ELF EARS", price: 380 },
-  { id: "bunny", label: "BUNNY EARS", price: 400 },
+  { id: "bear", label: "BEAR EARS", price: 2000 },
+  { id: "cat", label: "CAT EARS", price: 3000 },
+  { id: "horns", label: "HORNS", price: 5000 },
+  { id: "elf", label: "ELF EARS", price: 7000 },
+  { id: "bunny", label: "BUNNY EARS", price: 9000 },
 ];
 
 const withKind = (options, kind) =>

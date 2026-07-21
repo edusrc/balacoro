@@ -31,6 +31,8 @@ import {
   PROJECTILE_SPEED_BASE,
 } from "../constants.js";
 
+const JOYSTICK_DEADZONE_SQ = 0.0225;
+
 export class Player extends THREE.Object3D {
   constructor(input) {
     super();
@@ -124,23 +126,35 @@ export class Player extends THREE.Object3D {
 
   update(delta) {
     const direction = new THREE.Vector3();
+    const joystick = this.input.moveVector;
+    const joystickMagSq = joystick.x * joystick.x + joystick.z * joystick.z;
+    const usingJoystick = joystickMagSq > JOYSTICK_DEADZONE_SQ;
 
-    if (this.input.keys.KeyW) {
-      direction.z -= 1;
-    }
-    if (this.input.keys.KeyS) {
-      direction.z += 1;
-    }
-    if (this.input.keys.KeyA) {
-      direction.x -= 1;
-    }
-    if (this.input.keys.KeyD) {
-      direction.x += 1;
+    if (usingJoystick) {
+      direction.set(joystick.x, 0, joystick.z);
+      const mag = Math.sqrt(joystickMagSq);
+      if (mag > 1) {
+        direction.divideScalar(mag);
+      }
+    } else {
+      if (this.input.keys.KeyW) {
+        direction.z -= 1;
+      }
+      if (this.input.keys.KeyS) {
+        direction.z += 1;
+      }
+      if (this.input.keys.KeyA) {
+        direction.x -= 1;
+      }
+      if (this.input.keys.KeyD) {
+        direction.x += 1;
+      }
     }
 
     if (direction.lengthSq() > 0) {
-      direction.normalize().multiplyScalar(this.speed * delta);
-      const newPos = this.position.clone().add(direction);
+      const step = usingJoystick ? direction.clone() : direction.clone().normalize();
+      step.multiplyScalar(this.speed * delta);
+      const newPos = this.position.clone().add(step);
       const tileManager = this.parent?.tileManager;
 
       if (!tileManager) {
@@ -151,6 +165,10 @@ export class Player extends THREE.Object3D {
         if (!isBlocked) {
           this.position.copy(newPos);
         }
+      }
+
+      if (usingJoystick) {
+        this.lastDirection.copy(direction).normalize();
       }
     }
 

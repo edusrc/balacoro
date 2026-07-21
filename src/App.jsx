@@ -11,7 +11,15 @@ import Banner from "./components/Banner.jsx";
 import DifficultySkull from "./components/DifficultySkull.jsx";
 import { addCoins as bankCoins } from "./core/wallet.js";
 import { isDebugMode } from "./core/debug.js";
-import { saveRun, loadRun, clearRun, hasRun } from "./core/saveGame.js";
+import {
+  saveRun,
+  loadRun,
+  clearRun,
+  hasRun,
+  isAutoSaveEnabled,
+} from "./core/saveGame.js";
+import VolumeControls from "./components/VolumeControls.jsx";
+import TouchJoystick from "./components/TouchJoystick.jsx";
 import { addRunToHistory, formatDuration } from "./core/history.js";
 import { audio } from "./core/AudioEngine.js";
 
@@ -26,19 +34,20 @@ export default function App() {
   const [levelUpOpen, setLevelUpOpen] = useState(false);
   const [skillChoices, setSkillChoices] = useState(null);
   const [banner, setBanner] = useState(null);
-  const [volumes, setVolumes] = useState(() => ({ ...audio.userVolumes }));
   const [continuePrompt, setContinuePrompt] = useState(false);
   const pendingLoadRef = useRef(null);
+  const [isTouchDevice] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      ("ontouchstart" in window || navigator.maxTouchPoints > 0)
+  );
 
-  const changeVolume = (key, value) => {
-    if (key === "master") {
-      audio.setMasterVolume(value);
-    } else if (key === "music") {
-      audio.setMusicVolume(value);
-    } else {
-      audio.setEffectsVolume(value);
-    }
-    setVolumes({ ...audio.userVolumes });
+  const handleJoystickChange = (x, z) => {
+    gameRef.current?.scene?.player?.input?.setMoveVector(x, z);
+  };
+
+  const tapSkillKey = (code) => {
+    gameRef.current?.scene?.player?.input?.tapKey(code);
   };
 
   const [stats, setStats] = useState({
@@ -236,6 +245,9 @@ export default function App() {
   const returnToMenu = () => {
     if (!gameOver) {
       bankCoins(gameRef.current?.scene?.coinsEarned ?? 0);
+      if (gameRef.current && isAutoSaveEnabled()) {
+        saveRun(gameRef.current.createSaveSnapshot());
+      }
     }
     setScreen("menu");
     setIsPaused(false);
@@ -357,7 +369,6 @@ export default function App() {
                   onClick={() => {
                     audio.play("uiClick");
                     pendingLoadRef.current = loadRun();
-                    clearRun();
                     setContinuePrompt(false);
                     setScreen("game");
                   }}
@@ -639,6 +650,10 @@ export default function App() {
       <DifficultySkull power={stats.power} progress={stats.powerProgress} />
       <Banner banner={banner} />
 
+      {isTouchDevice && !isPaused && !gameOver && (
+        <TouchJoystick onChange={handleJoystickChange} />
+      )}
+
       {levelUpOpen && (
         <LevelUpModal
           onChoose={(passive) => {
@@ -678,6 +693,7 @@ export default function App() {
         {stats.player.active_skills.dash?.enabled && (
           <div
             id="dashContainer"
+            onClick={() => tapSkillKey("Space")}
             style={{
               position: "relative",
               width: "48px",
@@ -748,6 +764,7 @@ export default function App() {
         {stats.player.active_skills.freezeExplosion?.enabled && (
           <div
             id="freezeExplosionContainer"
+            onClick={() => tapSkillKey("KeyQ")}
             style={{
               position: "relative",
               width: "48px",
@@ -827,6 +844,7 @@ export default function App() {
         {stats.player.active_skills.energyExplosion?.enabled && (
           <div
             id="energyExplosionContainer"
+            onClick={() => tapSkillKey("KeyE")}
             style={{
               position: "relative",
               width: "48px",
@@ -1155,37 +1173,7 @@ export default function App() {
             >
               OPTIONS
             </div>
-            {[
-              { key: "music", label: "MUSIC" },
-              { key: "effects", label: "EFFECTS" },
-            ].map(({ key, label }) => (
-              <label
-                key={key}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                  fontSize: "10px",
-                  letterSpacing: "2px",
-                  color: "#ccc",
-                }}
-              >
-                <span>
-                  {label}: {Math.round(volumes[key] * 100)}%
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={volumes[key]}
-                  onChange={(event) =>
-                    changeVolume(key, Number(event.target.value))
-                  }
-                  style={{ accentColor: "#ffee00", width: "100%" }}
-                />
-              </label>
-            ))}
+            <VolumeControls />
           </div>
         </div>
       )}

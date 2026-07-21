@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import MenuStage, { MENU_CSS } from "./MenuStage.jsx";
 import CoinIcon from "./CoinIcon.jsx";
 import {
@@ -16,10 +16,11 @@ import { audio } from "../core/AudioEngine.js";
 
 const CUSTOMIZE_CSS = `
   .cosmetic-scroll {
-    max-height: 260px;
+    max-height: 220px;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-right: 8px;
+    padding: 6px 8px 6px 6px;
+    margin: -6px -8px -6px -6px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -38,6 +39,28 @@ const CUSTOMIZE_CSS = `
     border-radius: 4px;
     box-shadow: 0 0 6px rgba(255, 238, 0, 0.6);
   }
+  .buy-button {
+    background: rgba(255, 238, 0, 0.14);
+    border: 2px solid #ffee00;
+    border-radius: 6px;
+    color: #ffee00;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 2px;
+    padding: 12px 26px;
+    cursor: pointer;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+  }
+  .buy-button:hover:not(:disabled) {
+    background: rgba(255, 238, 0, 0.28);
+    box-shadow: 0 0 16px rgba(255, 238, 0, 0.55);
+  }
+  .buy-button:disabled {
+    border-color: #555;
+    color: #555;
+    cursor: default;
+    background: transparent;
+  }
 `;
 
 const TABS = [
@@ -45,10 +68,15 @@ const TABS = [
   ...ACCESSORY_CATEGORIES.map(({ id, label }) => ({ id, label })),
 ];
 
+function formatPrice(price) {
+  return price.toLocaleString("en-US");
+}
+
 export default function CustomizeMenu({ onBack }) {
   const [customization, setCustomization] = useState(loadCustomization);
   const [tab, setTab] = useState("color");
   const [coins, setCoins] = useState(getCoins);
+  const [previewOption, setPreviewOption] = useState(null);
 
   const update = (patch) => {
     const next = { ...customization, ...patch };
@@ -56,34 +84,70 @@ export default function CustomizeMenu({ onBack }) {
     saveCustomization(next);
   };
 
-  const effectIds = new Set(
-    ACCESSORY_CATEGORIES.find((category) => category.id === "effect").options.map(
-      (option) => option.id
-    )
+  const effectIds = useMemo(
+    () =>
+      new Set(
+        ACCESSORY_CATEGORIES.find(
+          (category) => category.id === "effect"
+        ).options.map((option) => option.id)
+      ),
+    []
   );
 
-  const toggleAccessory = (option) => {
+  const withOption = (list, option) => {
+    if (option.kind === "effect") {
+      return [...list.filter((id) => !effectIds.has(id)), option.id];
+    }
+    return [...list, option.id];
+  };
+
+  const previewAccessories = useMemo(() => {
+    const base = customization.accessories ?? [];
+    if (!previewOption || base.includes(previewOption.id)) {
+      return base;
+    }
+    return withOption(base, previewOption);
+  }, [customization.accessories, previewOption, effectIds]);
+
+  const directEquipToggle = (option) => {
     const accessories = customization.accessories ?? [];
-    const isEffect = option.kind === "effect";
+    audio.play("uiClick");
     if (accessories.includes(option.id)) {
-      audio.play("uiClick");
       update({ accessories: accessories.filter((id) => id !== option.id) });
-      return;
+    } else {
+      update({ accessories: withOption(accessories, option) });
     }
-    const withOption = (list) =>
-      isEffect
-        ? [...list.filter((id) => !effectIds.has(id)), option.id]
-        : [...list, option.id];
+    setPreviewOption(null);
+  };
+
+  const selectPreview = (option) => {
+    audio.play("uiClick");
+    setPreviewOption((current) =>
+      current?.id === option.id && current?.kind === option.kind
+        ? null
+        : option
+    );
+  };
+
+  const rowClick = (option) => {
     if (isOwned(option.kind, option.id)) {
-      audio.play("uiClick");
-      update({ accessories: withOption(accessories) });
+      directEquipToggle(option);
+    } else {
+      selectPreview(option);
+    }
+  };
+
+  const buySelected = () => {
+    if (!previewOption) {
       return;
     }
-    if (spendCoins(option.price)) {
+    const accessories = customization.accessories ?? [];
+    if (spendCoins(previewOption.price)) {
       audio.play("uiBuy");
-      unlockCosmetic(option.kind, option.id);
+      unlockCosmetic(previewOption.kind, previewOption.id);
       setCoins(getCoins());
-      update({ accessories: withOption(accessories) });
+      update({ accessories: withOption(accessories, previewOption) });
+      setPreviewOption(null);
     }
   };
 
@@ -122,7 +186,8 @@ export default function CustomizeMenu({ onBack }) {
       {options.map((option) => {
         const active = (customization.accessories ?? []).includes(option.id);
         const owned = isOwned(option.kind, option.id);
-        const affordable = coins >= option.price;
+        const isPreviewed =
+          previewOption?.id === option.id && previewOption?.kind === option.kind;
         return (
           <button
             key={option.id}
@@ -132,13 +197,18 @@ export default function CustomizeMenu({ onBack }) {
               display: "flex",
               alignItems: "center",
               gap: "10px",
-              opacity: owned || affordable ? 1 : 0.45,
               flexShrink: 0,
               width: "100%",
               boxSizing: "border-box",
+              padding: "7px 8px",
+              borderRadius: "4px",
+              background: isPreviewed ? "rgba(0, 229, 255, 0.12)" : "transparent",
+              boxShadow: isPreviewed
+                ? "0 0 0 2px #00e5ff, 0 0 10px rgba(0, 229, 255, 0.45)"
+                : "none",
             }}
             onMouseEnter={() => audio.play("uiHover")}
-            onClick={() => toggleAccessory(option)}
+            onClick={() => rowClick(option)}
           >
             <span style={{ fontSize: "15px" }}>
               {option.kind === "effect"
@@ -158,9 +228,10 @@ export default function CustomizeMenu({ onBack }) {
                   gap: "6px",
                   fontSize: "11px",
                   color: "#ffd23e",
+                  marginLeft: "auto",
                 }}
               >
-                🔒 <CoinIcon size={12} /> {option.price}
+                🔒 <CoinIcon size={12} /> {formatPrice(option.price)}
               </span>
             )}
           </button>
@@ -168,6 +239,8 @@ export default function CustomizeMenu({ onBack }) {
       })}
     </div>
   );
+
+  const previewAffordable = previewOption && coins >= previewOption.price;
 
   return (
     <div
@@ -185,7 +258,7 @@ export default function CustomizeMenu({ onBack }) {
 
       <MenuStage
         color={customization.color}
-        accessories={customization.accessories}
+        accessories={previewAccessories}
         projectileColor={customization.projectileColor}
       />
 
@@ -196,7 +269,7 @@ export default function CustomizeMenu({ onBack }) {
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
-          gap: "28px",
+          gap: "22px",
           paddingLeft: "8%",
           pointerEvents: "none",
         }}
@@ -225,12 +298,12 @@ export default function CustomizeMenu({ onBack }) {
               textShadow: "2px 2px #000",
             }}
           >
-            <CoinIcon size={15} /> {coins}
+            <CoinIcon size={15} /> {formatPrice(coins)}
           </div>
         </div>
 
         <div style={{ pointerEvents: "auto", maxWidth: "360px" }}>
-          <div style={{ display: "flex", gap: "18px", marginBottom: "24px" }}>
+          <div style={{ display: "flex", gap: "18px", marginBottom: "20px" }}>
             {TABS.map((t) => (
               <button
                 key={t.id}
@@ -247,7 +320,7 @@ export default function CustomizeMenu({ onBack }) {
           </div>
 
           {tab === "color" && (
-            <div>
+            <div style={{ marginBottom: "8px" }}>
               <div
                 style={{
                   fontSize: "9px",
@@ -280,7 +353,7 @@ export default function CustomizeMenu({ onBack }) {
 
           <button
             className="menu-button"
-            style={{ marginTop: "30px", fontSize: "14px" }}
+            style={{ marginTop: "22px", fontSize: "14px" }}
             onMouseEnter={() => audio.play("uiHover")}
             onClick={() => {
               audio.play("uiClick");
@@ -291,6 +364,46 @@ export default function CustomizeMenu({ onBack }) {
           </button>
         </div>
       </div>
+
+      {previewOption && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "8%",
+            right: "5%",
+            zIndex: 60,
+            padding: "14px 18px",
+            background: "rgba(8, 8, 14, 0.9)",
+            border: "2px solid #ffee00",
+            borderRadius: "8px",
+            boxShadow: "0 0 20px rgba(255, 238, 0, 0.35)",
+            display: "flex",
+            alignItems: "center",
+            gap: "18px",
+            fontFamily: '"Press Start 2P", monospace',
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "12px",
+              color: "#ffd23e",
+            }}
+          >
+            <CoinIcon size={13} /> {formatPrice(previewOption.price)}
+          </div>
+          <button
+            className="buy-button"
+            disabled={!previewAffordable}
+            onMouseEnter={() => previewAffordable && audio.play("uiHover")}
+            onClick={buySelected}
+          >
+            BUY
+          </button>
+        </div>
+      )}
     </div>
   );
 }

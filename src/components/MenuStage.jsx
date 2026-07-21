@@ -6,6 +6,7 @@ import { TrailEmitter, getTrailDefinitions } from "../core/trails.js";
 const PIXEL_SCALE = 3;
 const CUBE_X = 2.2;
 const IDLE_RESUME_SECONDS = 4;
+const TRAIL_WIND = new THREE.Vector3(2.4, 0, 0);
 
 export const MENU_CSS = `
   .menu-button {
@@ -339,7 +340,8 @@ export default function MenuStage({ color, accessories = [], projectileColor }) 
     if (sceneRef.current) {
       trailRef.current = new TrailEmitter(
         sceneRef.current,
-        getTrailDefinitions(accessoriesKey.split("|").filter(Boolean))
+        getTrailDefinitions(accessoriesKey.split("|").filter(Boolean)),
+        { wind: TRAIL_WIND }
       );
     }
   }, [color, accessoriesKey, projectileColor]);

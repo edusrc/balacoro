@@ -1,19 +1,19 @@
 import React, { useState } from "react";
 import { MENU_CSS } from "./MenuStage.jsx";
 import { audio } from "../core/AudioEngine.js";
+import VolumeControls from "./VolumeControls.jsx";
+import {
+  isAutoSaveEnabled,
+  setAutoSaveEnabled,
+} from "../core/saveGame.js";
 
 export default function OptionsMenu({ onBack }) {
-  const [volumes, setVolumes] = useState(() => ({ ...audio.userVolumes }));
+  const [autoSave, setAutoSave] = useState(isAutoSaveEnabled);
 
-  const changeVolume = (key, value) => {
-    if (key === "master") {
-      audio.setMasterVolume(value);
-    } else if (key === "music") {
-      audio.setMusicVolume(value);
-    } else {
-      audio.setEffectsVolume(value);
-    }
-    setVolumes({ ...audio.userVolumes });
+  const toggleAutoSave = (enabled) => {
+    setAutoSaveEnabled(enabled);
+    setAutoSave(enabled);
+    audio.play("uiClick");
   };
 
   return (
@@ -68,37 +68,37 @@ export default function OptionsMenu({ onBack }) {
         >
           AUDIO
         </div>
-        {[
-          { key: "music", label: "MUSIC" },
-          { key: "effects", label: "EFFECTS" },
-        ].map(({ key, label }) => (
-          <label
-            key={key}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "10px",
-              fontSize: "11px",
-              letterSpacing: "2px",
-              color: "#ccc",
-            }}
-          >
-            <span>
-              {label}: {Math.round(volumes[key] * 100)}%
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={volumes[key]}
-              onChange={(event) =>
-                changeVolume(key, Number(event.target.value))
-              }
-              style={{ accentColor: "#ffee00", width: "100%" }}
-            />
-          </label>
-        ))}
+        <VolumeControls />
+
+        <div
+          style={{
+            fontSize: "11px",
+            letterSpacing: "3px",
+            color: "#888",
+            marginTop: "8px",
+          }}
+        >
+          GAME
+        </div>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            fontSize: "11px",
+            letterSpacing: "2px",
+            color: "#ccc",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={autoSave}
+            onChange={(event) => toggleAutoSave(event.target.checked)}
+            style={{ accentColor: "#ffee00", width: "18px", height: "18px" }}
+          />
+          AUTO SAVE (SAVE WHEN LEAVING A RUN)
+        </label>
       </div>
 
       <button

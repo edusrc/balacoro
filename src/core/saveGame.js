@@ -1,4 +1,21 @@
 const SAVE_KEY = "balacoro_save";
+const AUTO_SAVE_KEY = "balacoro_autosave";
+
+export function isAutoSaveEnabled() {
+  try {
+    return localStorage.getItem(AUTO_SAVE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setAutoSaveEnabled(enabled) {
+  try {
+    localStorage.setItem(AUTO_SAVE_KEY, enabled ? "1" : "0");
+  } catch {
+    return;
+  }
+}
 
 export function saveRun(snapshot) {
   try {
