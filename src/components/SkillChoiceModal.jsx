@@ -207,8 +207,9 @@ export default function SkillChoiceModal({
           borderRadius: "10px",
           padding: "min(28px, 3vh) min(32px, 4vw)",
           maxWidth: "94vw",
-          maxHeight: "94vh",
-          overflowY: "auto",
+          ...(isTouchDevice
+            ? { maxHeight: "94vh", overflowY: "auto" }
+            : null),
         }}
       >
         <h2
