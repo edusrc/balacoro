@@ -13,6 +13,8 @@ export default function MenuScreen({
   savedGame,
   onContinueGame,
   onNewGame,
+  isTouchDevice,
+  onRequestFullscreen,
 }) {
   return (
     <>
@@ -22,6 +24,8 @@ export default function MenuScreen({
         onMonsterLab={onMonsterLab}
         onOptions={onOptions}
         onPowers={onPowers}
+        isTouchDevice={isTouchDevice}
+        onRequestFullscreen={onRequestFullscreen}
       />
       {continuePrompt && (
         <div

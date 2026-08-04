@@ -16,6 +16,8 @@ import SkillHud from "./components/SkillHud.jsx";
 import PauseOverlay from "./components/PauseOverlay.jsx";
 import ConfirmLeaveModal from "./components/ConfirmLeaveModal.jsx";
 import GameOverOverlay from "./components/GameOverOverlay.jsx";
+import RotateDeviceOverlay from "./components/RotateDeviceOverlay.jsx";
+import MobilePauseButton from "./components/MobilePauseButton.jsx";
 import { addCoins as bankCoins } from "./core/wallet.js";
 import { isDebugMode } from "./core/debug.js";
 import {
@@ -51,6 +53,49 @@ export default function App() {
       typeof window !== "undefined" &&
       ("ontouchstart" in window || navigator.maxTouchPoints > 0),
   );
+  const [isPortrait, setIsPortrait] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.innerHeight > window.innerWidth,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const updateOrientation = () => {
+      setIsPortrait(window.innerHeight > window.innerWidth);
+    };
+    updateOrientation();
+    window.addEventListener("resize", updateOrientation);
+    window.addEventListener("orientationchange", updateOrientation);
+    return () => {
+      window.removeEventListener("resize", updateOrientation);
+      window.removeEventListener("orientationchange", updateOrientation);
+    };
+  }, []);
+
+  const blockedByOrientation = isTouchDevice && isPortrait;
+
+  useEffect(() => {
+    if (
+      screen === "game" &&
+      blockedByOrientation &&
+      !isPaused &&
+      gameRef.current
+    ) {
+      gameRef.current.scene.togglePause();
+    }
+  }, [blockedByOrientation, screen, isPaused]);
+
+  const requestFullscreen = () => {
+    const el = document.documentElement;
+    const request =
+      el.requestFullscreen ??
+      el.webkitRequestFullscreen ??
+      el.msRequestFullscreen;
+    request?.call(el)?.catch?.(() => {});
+  };
 
   const handleJoystickChange = (x, z) => {
     gameRef.current?.scene?.player?.input?.setMoveVector(x, z);
@@ -278,54 +323,84 @@ export default function App() {
   };
 
   if (screen === "boot") {
-    return <BootScreen />;
+    return (
+      <>
+        <BootScreen />
+        {blockedByOrientation && <RotateDeviceOverlay />}
+      </>
+    );
   }
 
   if (screen === "menu") {
     const savedGame = continuePrompt ? loadRun() : null;
     return (
-      <MenuScreen
-        onPlay={() => {
-          if (hasRun()) {
-            setContinuePrompt(true);
-          } else {
+      <>
+        <MenuScreen
+          onPlay={() => {
+            if (hasRun()) {
+              setContinuePrompt(true);
+            } else {
+              setScreen("game");
+            }
+          }}
+          onCustomize={() => setScreen("customize")}
+          onMonsterLab={() => setScreen("monsterlab")}
+          onOptions={() => setScreen("options")}
+          onPowers={() => setScreen("powers")}
+          continuePrompt={continuePrompt}
+          savedGame={savedGame}
+          onContinueGame={() => {
+            pendingLoadRef.current = loadRun();
+            setContinuePrompt(false);
             setScreen("game");
-          }
-        }}
-        onCustomize={() => setScreen("customize")}
-        onMonsterLab={() => setScreen("monsterlab")}
-        onOptions={() => setScreen("options")}
-        onPowers={() => setScreen("powers")}
-        continuePrompt={continuePrompt}
-        savedGame={savedGame}
-        onContinueGame={() => {
-          pendingLoadRef.current = loadRun();
-          setContinuePrompt(false);
-          setScreen("game");
-        }}
-        onNewGame={() => {
-          clearRun();
-          setContinuePrompt(false);
-          setScreen("game");
-        }}
-      />
+          }}
+          onNewGame={() => {
+            clearRun();
+            setContinuePrompt(false);
+            setScreen("game");
+          }}
+          isTouchDevice={isTouchDevice}
+          onRequestFullscreen={requestFullscreen}
+        />
+        {blockedByOrientation && <RotateDeviceOverlay />}
+      </>
     );
   }
 
   if (screen === "customize") {
-    return <CustomizeMenu onBack={() => setScreen("menu")} />;
+    return (
+      <>
+        <CustomizeMenu onBack={() => setScreen("menu")} />
+        {blockedByOrientation && <RotateDeviceOverlay />}
+      </>
+    );
   }
 
   if (screen === "options") {
-    return <OptionsMenu onBack={() => setScreen("menu")} />;
+    return (
+      <>
+        <OptionsMenu onBack={() => setScreen("menu")} />
+        {blockedByOrientation && <RotateDeviceOverlay />}
+      </>
+    );
   }
 
   if (screen === "powers") {
-    return <PowersMenu onBack={() => setScreen("menu")} />;
+    return (
+      <>
+        <PowersMenu onBack={() => setScreen("menu")} />
+        {blockedByOrientation && <RotateDeviceOverlay />}
+      </>
+    );
   }
 
   if (screen === "monsterlab") {
-    return <MonsterLabMenu onBack={() => setScreen("menu")} />;
+    return (
+      <>
+        <MonsterLabMenu onBack={() => setScreen("menu")} />
+        {blockedByOrientation && <RotateDeviceOverlay />}
+      </>
+    );
   }
 
   return (
@@ -356,6 +431,9 @@ export default function App() {
             knobGlow="rgba(0, 229, 255, 0.55)"
             onChange={handleAimJoystickChange}
           />
+          <MobilePauseButton
+            onPress={() => gameRef.current?.scene?.togglePause()}
+          />
         </>
       )}
 
@@ -373,6 +451,7 @@ export default function App() {
         <SkillChoiceModal
           skills={skillChoices}
           activeSkills={stats.player.active_skills}
+          isTouchDevice={isTouchDevice}
           onChoose={(skill) => {
             gameRef.current?.scene.chooseSkill(skill);
             setSkillChoices(null);
@@ -423,6 +502,8 @@ export default function App() {
           onRestart={() => location.reload()}
         />
       )}
+
+      {blockedByOrientation && <RotateDeviceOverlay />}
     </div>
   );
 }

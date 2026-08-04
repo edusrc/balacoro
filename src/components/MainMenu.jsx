@@ -23,6 +23,8 @@ export default function MainMenu({
   onMonsterLab,
   onOptions,
   onPowers,
+  isTouchDevice,
+  onRequestFullscreen,
 }) {
   const [customization] = useState(loadCustomization);
   const [runs] = useState(getRunHistory);
@@ -371,6 +373,32 @@ export default function MainMenu({
       >
         v{version}
       </div>
+
+      {isTouchDevice && (
+        <button
+          onMouseEnter={() => audio.play("uiHover")}
+          onClick={() => {
+            audio.play("uiClick");
+            onRequestFullscreen?.();
+          }}
+          style={{
+            position: "absolute",
+            bottom: "16px",
+            right: "16px",
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: "9px",
+            letterSpacing: "1px",
+            padding: "10px 14px",
+            background: "rgba(8, 8, 14, 0.82)",
+            color: "#ffee00",
+            border: "1px solid rgba(255, 238, 0, 0.35)",
+            borderRadius: "6px",
+            cursor: "pointer",
+          }}
+        >
+          ⛶ FULLSCREEN
+        </button>
+      )}
     </div>
   );
 }

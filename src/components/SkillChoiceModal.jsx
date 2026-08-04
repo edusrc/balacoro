@@ -87,7 +87,12 @@ function skillStats(skillData, includeGrowth) {
     });
 }
 
-export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
+export default function SkillChoiceModal({
+  skills,
+  activeSkills,
+  onChoose,
+  isTouchDevice,
+}) {
   return (
     <div
       style={{
@@ -173,6 +178,26 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
         .skill-card-wrap:hover .skill-tooltip {
           opacity: 1;
         }
+        .skill-tooltip-static {
+          width: 170px;
+          margin-top: 10px;
+          background: #0a0a12;
+          border: 2px solid var(--accent);
+          border-radius: 6px;
+          padding: 8px 10px;
+          font-size: 8px;
+          line-height: 1.5;
+          letter-spacing: 0.3px;
+          color: #ddd;
+          text-align: center;
+        }
+        .skill-tooltip-static .skill-tooltip-desc {
+          max-width: none;
+          white-space: normal;
+        }
+        .skill-tooltip-static .skill-tooltip-stats div {
+          white-space: normal;
+        }
       `}</style>
 
       <div
@@ -180,7 +205,10 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
           background: "#101018",
           border: "2px solid #00ccff",
           borderRadius: "10px",
-          padding: "28px 32px",
+          padding: "min(28px, 3vh) min(32px, 4vw)",
+          maxWidth: "94vw",
+          maxHeight: "94vh",
+          overflowY: "auto",
         }}
       >
         <h2
@@ -206,7 +234,14 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
           UNLOCK OR UPGRADE A SKILL
         </p>
 
-        <div style={{ display: "flex", gap: "14px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            justifyContent: "center",
+            gap: "14px",
+          }}
+        >
           {skills.map((skill) => {
             const data = activeSkills?.[skill];
             const isUnlocked = data?.enabled;
@@ -216,6 +251,32 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
             const iconSrc = SKILL_ICONS[skill] ?? powerDef?.icon;
             const description = SKILL_DESCRIPTIONS[skill] ?? powerDef?.description;
             const stats = skillStats(data, isUnlocked);
+            const tooltipContent = (
+              <>
+                {description && (
+                  <div className="skill-tooltip-desc">{description}</div>
+                )}
+                {description && stats.length > 0 && (
+                  <hr className="skill-tooltip-divider" />
+                )}
+                {stats.length > 0 && (
+                  <div className="skill-tooltip-stats">
+                    {stats.map((stat) => (
+                      <div key={stat.label}>
+                        {stat.label}: {stat.value}
+                        {stat.growth ? (
+                          <span style={{ color: "#4dff88" }}>
+                            {" "}
+                            ({stat.growth > 0 ? "+" : ""}
+                            {stat.growth})
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
 
             return (
               <div
@@ -278,32 +339,14 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
                     </div>
                   )}
                 </button>
-                {(description || stats.length > 0) && (
-                  <div className="skill-tooltip">
-                    {description && (
-                      <div className="skill-tooltip-desc">{description}</div>
-                    )}
-                    {description && stats.length > 0 && (
-                      <hr className="skill-tooltip-divider" />
-                    )}
-                    {stats.length > 0 && (
-                      <div className="skill-tooltip-stats">
-                        {stats.map((stat) => (
-                          <div key={stat.label}>
-                            {stat.label}: {stat.value}
-                            {stat.growth ? (
-                              <span style={{ color: "#4dff88" }}>
-                                {" "}
-                                ({stat.growth > 0 ? "+" : ""}
-                                {stat.growth})
-                              </span>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {(description || stats.length > 0) &&
+                  (isTouchDevice ? (
+                    <div className="skill-tooltip-static">
+                      {tooltipContent}
+                    </div>
+                  ) : (
+                    <div className="skill-tooltip">{tooltipContent}</div>
+                  ))}
               </div>
             );
           })}

@@ -52,11 +52,11 @@ export default function LevelUpModal({ onChoose }) {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 10px;
+          gap: min(10px, 1.2vh);
           background: #181824;
           border: 2px solid #2a2a3a;
           border-radius: 8px;
-          padding: 16px 10px;
+          padding: min(16px, 1.8vh) min(10px, 2vw);
           cursor: pointer;
           font-family: inherit;
           color: #fff;
@@ -75,16 +75,18 @@ export default function LevelUpModal({ onChoose }) {
           background: "#101018",
           border: "2px solid #ffee00",
           borderRadius: "10px",
-          padding: "28px 32px",
-          maxWidth: "640px",
+          padding: "min(28px, 3vh) min(32px, 4vw)",
+          maxWidth: "min(640px, 94vw)",
+          maxHeight: "94vh",
+          overflowY: "auto",
         }}
       >
         <h2
           style={{
-            fontSize: "22px",
+            fontSize: "min(22px, 4vh)",
             color: "#ffee00",
             textAlign: "center",
-            margin: "0 0 10px",
+            margin: "0 0 min(10px, 1.5vh)",
             textShadow: "0 0 14px rgba(255, 238, 0, 0.6)",
           }}
         >
@@ -95,7 +97,7 @@ export default function LevelUpModal({ onChoose }) {
             fontSize: "10px",
             color: "#888",
             textAlign: "center",
-            margin: "0 0 24px",
+            margin: "0 0 min(24px, 2.5vh)",
             letterSpacing: "2px",
           }}
         >
@@ -106,7 +108,7 @@ export default function LevelUpModal({ onChoose }) {
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "12px",
+            gap: "min(12px, 1.5vh)",
           }}
         >
           {Object.keys(PLAYER_PASSIVES).map((passive) => (
@@ -122,14 +124,14 @@ export default function LevelUpModal({ onChoose }) {
             >
               <div
                 style={{
-                  width: "42px",
-                  height: "42px",
+                  width: "min(42px, 6vh)",
+                  height: "min(42px, 6vh)",
                   borderRadius: "8px",
                   background: PASSIVE_COLORS[passive],
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: "20px",
+                  fontSize: "min(20px, 3vh)",
                   color: "#000",
                 }}
               >
