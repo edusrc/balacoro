@@ -259,7 +259,6 @@ export const POWER_DEFS = {
       growthDuration: 0.4,
       growthRange: 1.5,
       maxCooldown: 8,
-      maxRange: 24,
     },
   },
 };

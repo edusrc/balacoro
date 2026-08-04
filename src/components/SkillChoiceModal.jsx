@@ -67,18 +67,24 @@ function formatLabel(key) {
     .replace(/^./, (str) => str.toUpperCase());
 }
 
-function skillStats(skillData) {
+function skillStats(skillData, includeGrowth) {
   return Object.entries(skillData ?? {})
     .filter(
       ([key, value]) =>
         key !== "enabled" &&
         !key.toLowerCase().includes("growth") &&
+        !key.toLowerCase().startsWith("max") &&
         value !== undefined
     )
-    .map(([key, value]) => ({
-      label: formatLabel(key),
-      value: typeof value === "number" ? +value.toFixed(1) : value,
-    }));
+    .map(([key, value]) => {
+      const growthKey = `growth${key[0].toUpperCase()}${key.slice(1)}`;
+      const growth = includeGrowth ? skillData[growthKey] : null;
+      return {
+        label: formatLabel(key),
+        value: typeof value === "number" ? +value.toFixed(1) : value,
+        growth: typeof growth === "number" ? growth : null,
+      };
+    });
 }
 
 export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
@@ -104,8 +110,10 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
           display: flex;
           flex-direction: column;
           align-items: center;
+          justify-content: center;
           gap: 12px;
           width: 170px;
+          height: 150px;
           background: #181824;
           border: 2px solid #2a2a3a;
           border-radius: 8px;
@@ -126,13 +134,14 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
           left: 50%;
           bottom: 100%;
           transform: translate(-50%, -4px);
-          width: 190px;
+          width: 250px;
           background: #0a0a12;
           border: 2px solid var(--accent);
           border-radius: 6px;
-          padding: 10px 12px;
+          padding: 10px 14px;
           font-size: 9px;
           line-height: 1.6;
+          letter-spacing: 0.4px;
           color: #ddd;
           text-align: center;
           box-shadow: 0 0 14px rgba(0, 0, 0, 0.6);
@@ -140,6 +149,26 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
           pointer-events: none;
           transition: opacity 0.12s ease;
           z-index: 10;
+        }
+        .skill-tooltip-desc {
+          max-width: 220px;
+          margin: 0 auto;
+          white-space: normal;
+        }
+        .skill-tooltip-divider {
+          border: none;
+          border-top: 1px solid var(--accent);
+          opacity: 0.5;
+          margin: 8px 0;
+        }
+        .skill-tooltip-stats {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          color: #aaa;
+        }
+        .skill-tooltip-stats div {
+          white-space: nowrap;
         }
         .skill-card-wrap:hover .skill-tooltip {
           opacity: 1;
@@ -186,6 +215,7 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
               SKILL_COLORS[skill] ?? (powerDef ? "#00e5ff" : "#aaaaaa");
             const iconSrc = SKILL_ICONS[skill] ?? powerDef?.icon;
             const description = SKILL_DESCRIPTIONS[skill] ?? powerDef?.description;
+            const stats = skillStats(data, isUnlocked);
 
             return (
               <div
@@ -236,23 +266,7 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
                   >
                     {powerDef?.label ?? formatLabel(skill)}
                   </div>
-                  {isUnlocked ? (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "5px",
-                        fontSize: "8px",
-                        color: "#aaa",
-                      }}
-                    >
-                      {skillStats(data).map((stat) => (
-                        <div key={stat.label}>
-                          {stat.label}: {stat.value}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
+                  {!isUnlocked && (
                     <div
                       style={{
                         fontSize: "10px",
@@ -264,8 +278,31 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
                     </div>
                   )}
                 </button>
-                {description && (
-                  <div className="skill-tooltip">{description}</div>
+                {(description || stats.length > 0) && (
+                  <div className="skill-tooltip">
+                    {description && (
+                      <div className="skill-tooltip-desc">{description}</div>
+                    )}
+                    {description && stats.length > 0 && (
+                      <hr className="skill-tooltip-divider" />
+                    )}
+                    {stats.length > 0 && (
+                      <div className="skill-tooltip-stats">
+                        {stats.map((stat) => (
+                          <div key={stat.label}>
+                            {stat.label}: {stat.value}
+                            {stat.growth ? (
+                              <span style={{ color: "#4dff88" }}>
+                                {" "}
+                                ({stat.growth > 0 ? "+" : ""}
+                                {stat.growth})
+                              </span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             );
