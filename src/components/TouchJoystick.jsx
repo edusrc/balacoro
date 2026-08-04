@@ -4,7 +4,12 @@ const OUTER_SIZE = 132;
 const KNOB_SIZE = 58;
 const MAX_OFFSET = (OUTER_SIZE - KNOB_SIZE) / 2;
 
-export default function TouchJoystick({ onChange }) {
+export default function TouchJoystick({
+  onChange,
+  side = "left",
+  knobColor = "rgba(255, 238, 0, 0.85)",
+  knobGlow = "rgba(255, 238, 0, 0.55)",
+}) {
   const baseRef = useRef(null);
   const activePointerId = useRef(null);
   const [knobOffset, setKnobOffset] = useState({ x: 0, y: 0 });
@@ -60,7 +65,7 @@ export default function TouchJoystick({ onChange }) {
       style={{
         position: "absolute",
         bottom: "28px",
-        left: "28px",
+        [side]: "28px",
         width: `${OUTER_SIZE}px`,
         height: `${OUTER_SIZE}px`,
         borderRadius: "50%",
@@ -80,8 +85,8 @@ export default function TouchJoystick({ onChange }) {
           marginTop: `${-KNOB_SIZE / 2}px`,
           marginLeft: `${-KNOB_SIZE / 2}px`,
           borderRadius: "50%",
-          background: "rgba(255, 238, 0, 0.85)",
-          boxShadow: "0 0 14px rgba(255, 238, 0, 0.55)",
+          background: knobColor,
+          boxShadow: `0 0 14px ${knobGlow}`,
           transform: `translate(${knobOffset.x}px, ${knobOffset.y}px)`,
           pointerEvents: "none",
         }}

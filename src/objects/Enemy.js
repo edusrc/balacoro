@@ -151,9 +151,12 @@ export class Enemy extends THREE.Object3D {
     this.damageTimer = 0;
     this.flashTime = 0;
     this.critPunchTime = 0;
+    this.slowTimer = 0;
     this.isDying = false;
     this.deathTimer = 0;
     this.deathParticles = [];
+
+    this.velocity = new THREE.Vector3();
 
     this.stuckTime = 0;
     this.detourActive = false;
@@ -332,9 +335,13 @@ export class Enemy extends THREE.Object3D {
       return tileManager?.intersectsSolid(box);
     };
 
-    const moveSpeed =
+    let moveSpeed =
       this.speed *
       (this.parent?.isFullMoon ? FULL_MOON_SPEED_MULTIPLIER : 1);
+    if (this.slowTimer > 0) {
+      this.slowTimer -= delta;
+      moveSpeed *= 0.4;
+    }
     const currentDist = this.position.distanceToSquared(this.target.position);
     const forward = direction.clone().multiplyScalar(moveSpeed * delta);
     const forwardPos = this.position.clone().add(forward);
@@ -547,17 +554,21 @@ export class Enemy extends THREE.Object3D {
   }
 
   freeze(duration) {
-    if (this.isFrozen || this.isDying) {
+    if (this.isDying) {
       return;
     }
 
     this.isFrozen = true;
-    this.freezeTimer = duration;
+    this.freezeTimer = Math.max(this.freezeTimer ?? 0, duration);
 
-    this.freezeEffect = new THREE.Mesh(freezeGeometry, freezeMaterial);
-    this.freezeEffect.scale.setScalar(0.6 * this.size);
-    this.freezeEffect.position.y = this.bodyScale.y * 0.42;
-    this.add(this.freezeEffect);
+    audio.play("powerIceFreeze", { position: this.position });
+
+    if (!this.freezeEffect) {
+      this.freezeEffect = new THREE.Mesh(freezeGeometry, freezeMaterial);
+      this.freezeEffect.scale.setScalar(0.6 * this.size);
+      this.freezeEffect.position.y = this.bodyScale.y * 0.42;
+      this.add(this.freezeEffect);
+    }
   }
 
   resolveCollision(otherEnemy) {
@@ -611,7 +622,7 @@ export class Enemy extends THREE.Object3D {
     }
   }
 
-  hit(damage = 1, isCritical = false) {
+  hit(damage = 1, isCritical = false, critSoundOverride = null) {
     if (this.isDying) {
       return;
     }
@@ -619,9 +630,10 @@ export class Enemy extends THREE.Object3D {
     this.health -= damage;
     this.updateHealthBar();
 
-    audio.play(isCritical ? "enemyCrit" : "enemyHit", {
-      position: this.position,
-    });
+    audio.play(
+      isCritical ? (critSoundOverride ?? "enemyCrit") : "enemyHit",
+      { position: this.position }
+    );
 
     const material = isCritical ? criticalFlashMaterial : flashMaterial;
     for (const entry of this.flashEntries) {
@@ -669,6 +681,12 @@ export class Enemy extends THREE.Object3D {
     }
     if (this.parent?.addCoins) {
       this.parent.addCoins(this.coinReward);
+    }
+    if (this.target?.onEnemyKilled) {
+      this.target.onEnemyKilled();
+    }
+    if (this.isBoss && this.parent?.spawnBossChest) {
+      this.parent.spawnBossChest(this.position);
     }
   }
 

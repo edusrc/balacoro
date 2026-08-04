@@ -10,6 +10,7 @@ export class InputController {
       Space: false,
     };
     this.moveVector = { x: 0, z: 0 };
+    this.aimVector = { x: 0, z: 0 };
 
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -30,6 +31,11 @@ export class InputController {
   setMoveVector(x, z) {
     this.moveVector.x = x;
     this.moveVector.z = z;
+  }
+
+  setAimVector(x, z) {
+    this.aimVector.x = x;
+    this.aimVector.z = z;
   }
 
   tapKey(code, holdMs = 90) {

@@ -7,10 +7,12 @@ import {
   getBestRun,
   formatDuration,
 } from "../core/history.js";
+import { version } from "../../package.json";
 
 const MENU_ITEMS = [
   { id: "play", label: "PLAY" },
   { id: "customize", label: "CUSTOMIZE" },
+  { id: "powers", label: "POWERS" },
   { id: "monsterlab", label: "MONSTER LAB" },
   { id: "options", label: "OPTIONS" },
 ];
@@ -20,10 +22,16 @@ export default function MainMenu({
   onCustomize,
   onMonsterLab,
   onOptions,
+  onPowers,
 }) {
   const [customization] = useState(loadCustomization);
   const [runs] = useState(getRunHistory);
   const bestRun = getBestRun(runs);
+  const [viewMode, setViewMode] = useState("recent");
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const topRuns = [...runs].sort((a, b) => b.time - a.time).slice(0, 3);
+  const visibleRuns = viewMode === "top" ? topRuns : runs.slice(0, 5);
 
   const handleSelect = (item) => {
     if (item.disabled) {
@@ -41,6 +49,9 @@ export default function MainMenu({
     }
     if (item.id === "options") {
       onOptions();
+    }
+    if (item.id === "powers") {
+      onPowers();
     }
   };
 
@@ -121,7 +132,7 @@ export default function MainMenu({
             background: "rgba(8, 8, 14, 0.82)",
             border: "1px solid rgba(255, 238, 0, 0.35)",
             borderRadius: "8px",
-            pointerEvents: "none",
+            pointerEvents: "auto",
           }}
         >
           <div
@@ -147,16 +158,46 @@ export default function MainMenu({
             <br />
             DIFFICULTY {bestRun.power} • {bestRun.coins} COINS
           </div>
+
           <div
             style={{
-              fontSize: "9px",
-              letterSpacing: "2px",
-              color: "#888",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
               marginBottom: "8px",
             }}
           >
-            LAST RUNS
+            <div
+              style={{
+                fontSize: "9px",
+                letterSpacing: "2px",
+                color: "#888",
+              }}
+            >
+              {viewMode === "top" ? "TOP 3" : "LAST RUNS"}
+            </div>
+            <button
+              onMouseEnter={() => audio.play("uiHover")}
+              onClick={() => {
+                audio.play("uiClick");
+                setViewMode((mode) => (mode === "top" ? "recent" : "top"));
+              }}
+              style={{
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: "7px",
+                letterSpacing: "1px",
+                padding: "4px 8px",
+                background: "transparent",
+                color: "#ffee00",
+                border: "1px solid #ffee00",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              {viewMode === "top" ? "RECENT" : "TOP 3"}
+            </button>
           </div>
+
           <div
             style={{
               display: "flex",
@@ -165,17 +206,171 @@ export default function MainMenu({
               fontSize: "8px",
               color: "#aaa",
               letterSpacing: "1px",
+              marginBottom: "12px",
             }}
           >
-            {runs.slice(0, 5).map((run, index) => (
+            {visibleRuns.map((run, index) => (
               <div key={run.date ?? index}>
                 {formatDuration(run.time)} • LVL {run.level} • DIF {run.power}{" "}
                 • {run.coins}c
               </div>
             ))}
           </div>
+
+          <button
+            onMouseEnter={() => audio.play("uiHover")}
+            onClick={() => {
+              audio.play("uiClick");
+              setHistoryOpen(true);
+            }}
+            style={{
+              width: "100%",
+              fontFamily: '"Press Start 2P", monospace',
+              fontSize: "10px",
+              letterSpacing: "3px",
+              padding: "8px 0",
+              background: "transparent",
+              color: "#888",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "4px",
+              cursor: "pointer",
+            }}
+          >
+            •••
+          </button>
         </div>
       )}
+
+      {historyOpen && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.82)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 200,
+          }}
+        >
+          <div
+            style={{
+              width: "min(560px, 86vw)",
+              maxHeight: "78vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "#101018",
+              border: "2px solid #ffee00",
+              borderRadius: "10px",
+              padding: "24px 26px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "18px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "14px",
+                  letterSpacing: "3px",
+                  color: "#ffee00",
+                  textShadow: "0 0 14px rgba(255, 238, 0, 0.5)",
+                }}
+              >
+                RUN HISTORY
+              </div>
+              <button
+                onMouseEnter={() => audio.play("uiHover")}
+                onClick={() => {
+                  audio.play("uiClick");
+                  setHistoryOpen(false);
+                }}
+                style={{
+                  fontFamily: '"Press Start 2P", monospace',
+                  fontSize: "12px",
+                  padding: "6px 12px",
+                  background: "transparent",
+                  color: "#fff",
+                  border: "2px solid #fff",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                X
+              </button>
+            </div>
+
+            <div
+              style={{
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                fontSize: "9px",
+                color: "#ccc",
+                letterSpacing: "0.5px",
+              }}
+            >
+              {runs.map((run, index) => (
+                <div
+                  key={run.date ?? index}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "8px 10px",
+                    background:
+                      run === bestRun
+                        ? "rgba(255, 238, 0, 0.08)"
+                        : "rgba(255, 255, 255, 0.04)",
+                    border:
+                      run === bestRun
+                        ? "1px solid rgba(255, 238, 0, 0.4)"
+                        : "1px solid transparent",
+                    borderRadius: "4px",
+                  }}
+                >
+                  <span style={{ color: "#666", minWidth: "24px" }}>
+                    #{index + 1}
+                  </span>
+                  <span>{formatDuration(run.time)}</span>
+                  <span>LVL {run.level}</span>
+                  <span>DIF {run.power}</span>
+                  <span style={{ color: "#ffd23e" }}>{run.coins}c</span>
+                  <span style={{ color: "#666" }}>
+                    {run.date
+                      ? new Date(run.date).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })
+                      : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div
+        style={{
+          position: "absolute",
+          bottom: "16px",
+          left: "24px",
+          fontSize: "9px",
+          letterSpacing: "2px",
+          color: "#ffee00",
+          opacity: 0.6,
+          textShadow: "0 0 10px rgba(255, 238, 0, 0.35)",
+          pointerEvents: "none",
+        }}
+      >
+        v{version}
+      </div>
     </div>
   );
 }

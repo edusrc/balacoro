@@ -6,6 +6,13 @@ import { showDamageText } from "../components/DamageText.js";
 import { loadCustomization } from "../core/customization.js";
 import { createAccessory } from "../core/cosmetics.js";
 import { TrailEmitter, getTrailDefinitions } from "../core/trails.js";
+import {
+  POWER_DEFS,
+  loadPowerLoadout,
+  performPower,
+  spawnFlash,
+  spawnRingWave,
+} from "../core/powers.js";
 import { audio } from "../core/AudioEngine.js";
 
 import {
@@ -29,6 +36,9 @@ import {
   PLAYER_LIGHT_DISTANCE_NORMAL,
   PLAYER_EMISSIVE_INTENSITY,
   PROJECTILE_SPEED_BASE,
+  LOW_HEALTH_THRESHOLD,
+  SECOND_WIND_INVINCIBILITY_DURATION,
+  TWIN_SHOT_DAMAGE_MULTIPLIER,
 } from "../constants.js";
 
 const JOYSTICK_DEADZONE_SQ = 0.0225;
@@ -46,13 +56,23 @@ export class Player extends THREE.Object3D {
     this.isInvincible = false;
     this.attackCooldown = 0;
     this.lastDirection = new THREE.Vector3(1, 0, 0);
-    this.freezeExplosionTimer = 0;
     this.dashCooldownTimer = 0;
     this.dashCharges = 0;
     this.dashKeyHeld = false;
     this.shieldCount = 0;
-    this.energyExplosionTimer = 0;
     this.forceFieldCooldownTimer = 0;
+    this.powerCooldowns = { q: 0, e: 0 };
+    this.adrenalineTimer = 0;
+    this.adrenalineAura = null;
+    this.auraPulseTime = 0;
+    this.secondWindUsed = false;
+    this.secondWindTimer = 0;
+    this.orbitalGroup = null;
+    this.orbitalBladeMeshes = [];
+    this.orbitalAngle = 0;
+    this.orbitalHitTimers = new Map();
+    this.staticFieldOrbit = null;
+    this.staticFieldOrbitAngle = 0;
 
     this.level = PLAYER_INITIAL_LEVEL;
     this.currentXP = PLAYER_INITIAL_XP;
@@ -64,6 +84,17 @@ export class Player extends THREE.Object3D {
     this.lifeSteal = PLAYER_INITIAL_LIFE_STEAL;
 
     this.active_skills = JSON.parse(JSON.stringify(INITIAL_PLAYER_SKILLS));
+    delete this.active_skills.energyExplosion;
+    delete this.active_skills.freezeExplosion;
+
+    this.slotPowers = loadPowerLoadout();
+    for (const powerId of [this.slotPowers.q, this.slotPowers.e]) {
+      if (powerId && POWER_DEFS[powerId] && !this.active_skills[powerId]) {
+        this.active_skills[powerId] = JSON.parse(
+          JSON.stringify(POWER_DEFS[powerId].skill)
+        );
+      }
+    }
 
     const customization = loadCustomization();
     this.customColor = customization.color;
@@ -85,6 +116,7 @@ export class Player extends THREE.Object3D {
 
     const eyeGeometry = new THREE.BoxGeometry(0.18, 0.18, 0.06);
     const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    this.eyeMaterial = eyeMaterial;
     for (const side of [-1, 1]) {
       const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
       eye.position.set(side * 0.2, 0.15, 0.51);
@@ -125,10 +157,27 @@ export class Player extends THREE.Object3D {
   }
 
   update(delta) {
+    if (this.adrenalineTimer > 0) {
+      this.adrenalineTimer = Math.max(this.adrenalineTimer - delta, 0);
+    }
+    const adrenalineSkill = this.active_skills.adrenaline;
+    const adrenalineActive =
+      adrenalineSkill?.enabled && this.adrenalineTimer > 0;
+    const speedMultiplier = adrenalineActive
+      ? 1 + adrenalineSkill.speedBonus
+      : 1;
+    const attackSpeedMultiplier = adrenalineActive
+      ? 1 + adrenalineSkill.attackSpeedBonus
+      : 1;
+
     const direction = new THREE.Vector3();
     const joystick = this.input.moveVector;
     const joystickMagSq = joystick.x * joystick.x + joystick.z * joystick.z;
     const usingJoystick = joystickMagSq > JOYSTICK_DEADZONE_SQ;
+    const aimJoystick = this.input.aimVector;
+    const aimJoystickMagSq =
+      aimJoystick.x * aimJoystick.x + aimJoystick.z * aimJoystick.z;
+    const usingAimJoystick = aimJoystickMagSq > JOYSTICK_DEADZONE_SQ;
 
     if (usingJoystick) {
       direction.set(joystick.x, 0, joystick.z);
@@ -153,7 +202,7 @@ export class Player extends THREE.Object3D {
 
     if (direction.lengthSq() > 0) {
       const step = usingJoystick ? direction.clone() : direction.clone().normalize();
-      step.multiplyScalar(this.speed * delta);
+      step.multiplyScalar(this.speed * speedMultiplier * delta);
       const newPos = this.position.clone().add(step);
       const tileManager = this.parent?.tileManager;
 
@@ -167,9 +216,15 @@ export class Player extends THREE.Object3D {
         }
       }
 
-      if (usingJoystick) {
+      if (usingJoystick && !usingAimJoystick) {
         this.lastDirection.copy(direction).normalize();
       }
+    }
+
+    if (usingAimJoystick) {
+      this.lastDirection
+        .set(aimJoystick.x, 0, aimJoystick.z)
+        .normalize();
     }
 
     if (this.lastDirection.lengthSq() > 0) {
@@ -183,7 +238,7 @@ export class Player extends THREE.Object3D {
     }
 
     this.attackCooldown += delta;
-    if (this.attackCooldown >= 1 / this.attackSpeed) {
+    if (this.attackCooldown >= 1 / (this.attackSpeed * attackSpeedMultiplier)) {
       this.attackCooldown = 0;
       this.attack();
     }
@@ -214,6 +269,54 @@ export class Player extends THREE.Object3D {
       }
     }
 
+    const berserkerSkill = this.active_skills.berserker;
+    const berserkerActive =
+      berserkerSkill?.enabled &&
+      this.health / this.maxHealth <= LOW_HEALTH_THRESHOLD;
+    if (this.eyeMaterial) {
+      this.eyeMaterial.color.set(berserkerActive ? 0xff2222 : 0x111111);
+      this.eyeMaterial.emissive.set(berserkerActive ? 0x660000 : 0x000000);
+    }
+    this.berserkerActive = berserkerActive === true;
+
+    if (adrenalineActive) {
+      this.auraPulseTime += delta;
+      if (!this.adrenalineAura) {
+        const aura = new THREE.Mesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshBasicMaterial({
+            color: 0xff8a3d,
+            transparent: true,
+            opacity: 0.35,
+            side: THREE.BackSide,
+            depthWrite: false,
+          })
+        );
+        aura.position.y = 0.35;
+        this.add(aura);
+        this.adrenalineAura = aura;
+      }
+      this.adrenalineAura.scale.setScalar(
+        1.35 + Math.sin(this.auraPulseTime * 12) * 0.1
+      );
+      this.adrenalineAura.material.opacity =
+        0.3 + Math.sin(this.auraPulseTime * 10) * 0.1;
+    } else if (this.adrenalineAura) {
+      this.remove(this.adrenalineAura);
+      this.adrenalineAura.geometry.dispose();
+      this.adrenalineAura.material.dispose();
+      this.adrenalineAura = null;
+    }
+
+    if (this.secondWindTimer > 0) {
+      this.secondWindTimer = Math.max(this.secondWindTimer - delta, 0);
+      this.visible = Math.floor(this.secondWindTimer * 12) % 2 === 0;
+      if (this.secondWindTimer <= 0) {
+        this.isInvincible = false;
+        this.visible = true;
+      }
+    }
+
     if (this.healthRegen > 0) {
       this.health = Math.min(this.health + this.healthRegen * delta, this.maxHealth);
     }
@@ -230,18 +333,7 @@ export class Player extends THREE.Object3D {
       this.trailEmitter.update(delta, this.position, direction.lengthSq() > 0);
     }
 
-    const energySkill = this.active_skills.energyExplosion;
-    if (energySkill?.enabled) {
-      this.energyExplosionTimer = Math.max(this.energyExplosionTimer - delta, 0);
-
-      if (this.energyExplosionTimer <= 0 && this.input.keys.KeyE) {
-        this.energyExplosionTimer = energySkill.cooldown;
-        this.performEnergyExplosion();
-      }
-    }
-
     const freezeSkill = this.active_skills.freezeExplosion;
-
     if (freezeSkill?.enabled) {
       if (!this.freezeRing) {
         this.freezeRing = this.createFreezeRing();
@@ -252,14 +344,12 @@ export class Player extends THREE.Object3D {
         this.freezeRing.geometry.dispose();
         this.freezeRing.geometry = newGeometry;
       }
-
-      this.freezeExplosionTimer = Math.max(this.freezeExplosionTimer - delta, 0);
-
-      if (this.freezeExplosionTimer <= 0 && this.input.keys.KeyQ) {
-        this.freezeExplosionTimer = freezeSkill.cooldown;
-        this.performFreezeExplosion();
-      }
     }
+
+    this._updatePowerSlot("q", "KeyQ", delta);
+    this._updatePowerSlot("e", "KeyE", delta);
+    this._updateOrbitalBlades(delta);
+    this._updateStaticFieldOrbit(delta);
 
     const dashSkill = this.active_skills.dash;
     if (dashSkill?.enabled) {
@@ -315,6 +405,155 @@ export class Player extends THREE.Object3D {
         this.updateForceFieldVisual();
       }
     }
+  }
+
+  _updatePowerSlot(slot, keyCode, delta) {
+    const powerId = this.slotPowers[slot];
+    const skill = powerId ? this.active_skills[powerId] : null;
+    if (!skill?.enabled) {
+      return;
+    }
+    this.powerCooldowns[slot] = Math.max(this.powerCooldowns[slot] - delta, 0);
+    if (this.powerCooldowns[slot] <= 0 && this.input.keys[keyCode]) {
+      this.powerCooldowns[slot] = skill.cooldown ?? 10;
+      performPower(powerId, this);
+    }
+  }
+
+  _updateOrbitalBlades(delta) {
+    const skill = this.active_skills.orbitalBlades;
+    if (!skill?.enabled) {
+      if (this.orbitalGroup) {
+        for (const blade of this.orbitalBladeMeshes) {
+          blade.geometry.dispose();
+          blade.material.dispose();
+        }
+        this.remove(this.orbitalGroup);
+        this.orbitalGroup = null;
+        this.orbitalBladeMeshes = [];
+      }
+      return;
+    }
+
+    const count = Math.max(1, Math.floor(skill.count));
+    if (!this.orbitalGroup) {
+      this.orbitalGroup = new THREE.Group();
+      this.orbitalGroup.position.y = 0.55;
+      this.add(this.orbitalGroup);
+    }
+
+    if (this.orbitalBladeMeshes.length !== count) {
+      for (const blade of this.orbitalBladeMeshes) {
+        this.orbitalGroup.remove(blade);
+        blade.geometry.dispose();
+        blade.material.dispose();
+      }
+      this.orbitalBladeMeshes = [];
+      for (let i = 0; i < count; i++) {
+        const blade = new THREE.Mesh(
+          new THREE.ConeGeometry(0.1, 0.44, 4),
+          new THREE.MeshStandardMaterial({
+            color: 0xcfe9ff,
+            emissive: 0x1c4d80,
+            emissiveIntensity: 0.4,
+            flatShading: true,
+            metalness: 0.5,
+            roughness: 0.3,
+          })
+        );
+        blade.scale.z = 0.22;
+        blade.rotation.x = Math.PI / 2;
+        this.orbitalGroup.add(blade);
+        this.orbitalBladeMeshes.push(blade);
+      }
+    }
+
+    this.orbitalAngle += delta * 2.4;
+    const radius = skill.range;
+    for (let i = 0; i < this.orbitalBladeMeshes.length; i++) {
+      const angle =
+        this.orbitalAngle + (i / this.orbitalBladeMeshes.length) * Math.PI * 2;
+      const blade = this.orbitalBladeMeshes[i];
+      blade.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+      blade.rotation.z = -angle;
+    }
+
+    const scene = this.parent;
+    if (!scene?.enemies) {
+      return;
+    }
+
+    for (const [enemy, timeLeft] of this.orbitalHitTimers) {
+      const next = timeLeft - delta;
+      if (next <= 0 || enemy.isDying || !scene.enemies.includes(enemy)) {
+        this.orbitalHitTimers.delete(enemy);
+      } else {
+        this.orbitalHitTimers.set(enemy, next);
+      }
+    }
+
+    const hitRadius = 0.55;
+    const tickInterval = 0.4;
+    const bladeWorldPos = new THREE.Vector3();
+    for (const blade of this.orbitalBladeMeshes) {
+      blade.getWorldPosition(bladeWorldPos);
+      for (const enemy of scene.enemies) {
+        if (enemy.isDying || this.orbitalHitTimers.has(enemy)) {
+          continue;
+        }
+        const reach = hitRadius + (enemy.hitboxRadius ?? 0.5);
+        if (enemy.position.distanceToSquared(bladeWorldPos) < reach * reach) {
+          enemy.hit(skill.damage);
+          audio.play("powerOrbitalBladeHit", { position: enemy.position });
+          this.orbitalHitTimers.set(enemy, tickInterval);
+        }
+      }
+    }
+  }
+
+  _updateStaticFieldOrbit(delta) {
+    const skill = this.active_skills.staticField;
+    if (!skill?.enabled) {
+      if (this.staticFieldOrbit) {
+        this.remove(this.staticFieldOrbit);
+        this.staticFieldOrbit.traverse((child) => {
+          if (child.isMesh) {
+            child.geometry.dispose();
+            child.material.dispose();
+          }
+        });
+        this.staticFieldOrbit = null;
+      }
+      return;
+    }
+
+    if (!this.staticFieldOrbit) {
+      const group = new THREE.Group();
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xaef0ff,
+        emissive: 0x2299bb,
+        emissiveIntensity: 0.6,
+        flatShading: true,
+      });
+      const armGeometry = new THREE.BoxGeometry(0.22, 0.03, 0.03);
+      for (let i = 0; i < 3; i++) {
+        const arm = new THREE.Mesh(armGeometry, material);
+        arm.rotation.y = (i / 3) * Math.PI;
+        group.add(arm);
+      }
+      group.position.y = 0.85;
+      this.add(group);
+      this.staticFieldOrbit = group;
+    }
+
+    this.staticFieldOrbitAngle += delta * 1.3;
+    const radius = 0.85;
+    this.staticFieldOrbit.position.x =
+      Math.cos(this.staticFieldOrbitAngle) * radius;
+    this.staticFieldOrbit.position.z =
+      Math.sin(this.staticFieldOrbitAngle) * radius;
+    this.staticFieldOrbit.rotation.y += delta * 2.5;
+    this.staticFieldOrbit.rotation.x += delta * 1.5;
   }
 
   createFreezeRing() {
@@ -376,72 +615,6 @@ export class Player extends THREE.Object3D {
         enemy.freeze(duration);
       }
     }
-  }
-
-  performEnergyExplosion() {
-    const skill = this.active_skills.energyExplosion;
-    const maxRadius = skill.range ?? 1;
-    const damage = skill.damage ?? 1;
-
-    const parent = this.parent;
-    if (!parent || !parent.enemies) {
-      return;
-    }
-
-    audio.play("skillEnergyExplosion");
-
-    const circleGeometry = new THREE.RingGeometry(0.05, 0.1, 64);
-    const circleMaterial = new THREE.MeshBasicMaterial({
-      color: 0xff0000,
-      transparent: true,
-      opacity: 0.5,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-
-    const circle = new THREE.Mesh(circleGeometry, circleMaterial);
-    circle.rotation.x = -Math.PI / 2;
-    circle.position.set(0, 0.01, 0);
-    this.add(circle);
-
-    let currentRadius = 0.1;
-    const growthSpeed = 5;
-    const hitSet = new Set();
-
-    const animate = () => {
-      const delta = 1 / 60;
-      currentRadius += growthSpeed * delta;
-
-      const newGeometry = new THREE.RingGeometry(
-        currentRadius - 0.05,
-        currentRadius,
-        64
-      );
-      circle.geometry.dispose();
-      circle.geometry = newGeometry;
-
-      for (const enemy of parent.enemies) {
-        if (hitSet.has(enemy)) continue;
-
-        const distance = enemy.position.distanceTo(this.position);
-        if (distance <= currentRadius) {
-          enemy.hit(damage);
-          hitSet.add(enemy);
-        }
-      }
-
-      if (currentRadius < maxRadius) {
-        requestAnimationFrame(animate);
-      } else {
-        if (circle.parent) {
-          circle.parent.remove(circle);
-          circle.geometry.dispose();
-          circle.material.dispose();
-        }
-      }
-    };
-
-    requestAnimationFrame(animate);
   }
 
   performDash() {
@@ -561,10 +734,19 @@ export class Player extends THREE.Object3D {
   }
 
   attack() {
-    audio.play("playerShoot");
+    audio.play(
+      this.active_skills.twinShot?.enabled ? "powerTwinShot" : "playerShoot"
+    );
     const projectileSpeed = this.speed + PROJECTILE_SPEED_BASE;
     const isCritical = Math.random() < this.criticalChance;
-    const baseDamage = this.damage;
+    let baseDamage = this.damage;
+
+    const berserkerSkill = this.active_skills.berserker;
+    if (berserkerSkill?.enabled) {
+      const missingRatio = 1 - this.health / this.maxHealth;
+      baseDamage *= 1 + berserkerSkill.bonus * missingRatio;
+    }
+
     const damage = isCritical ? baseDamage * (1 + this.criticalDamage) : baseDamage;
     const projectile = new Projectile(
       this.position.clone(),
@@ -580,6 +762,27 @@ export class Player extends THREE.Object3D {
     if (this.parent) {
       this.parent.add(projectile);
       this.parent.projectiles?.push(projectile);
+    }
+
+    const twinShotSkill = this.active_skills.twinShot;
+    if (twinShotSkill?.enabled && this.parent) {
+      const secondDirection = this.lastDirection
+        .clone()
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(14))
+        .normalize();
+      const secondProjectile = new Projectile(
+        this.position.clone(),
+        secondDirection,
+        projectileSpeed,
+        undefined,
+        damage * TWIN_SHOT_DAMAGE_MULTIPLIER,
+        this.projectGlowing,
+        this.sharpening,
+        this.projectileColor,
+        isCritical
+      );
+      this.parent.add(secondProjectile);
+      this.parent.projectiles?.push(secondProjectile);
     }
   }
 
@@ -659,27 +862,29 @@ export class Player extends THREE.Object3D {
         }
       }
     } else {
-      if (skill.cooldown !== undefined && skill.growthCooldown !== undefined) {
-        skill.cooldown += skill.growthCooldown;
-      }
-      if (skill.maxCooldown !== undefined) {
-        skill.cooldown = Math.max(skill.cooldown, skill.maxCooldown);
-      }
-
-      if (skill.range !== undefined && skill.growthRange !== undefined) {
-        skill.range += skill.growthRange;
-      }
-
-      if (skill.damage !== undefined && skill.growthDamage !== undefined) {
-        skill.damage += skill.growthDamage;
-      }
-
-      if (skill.duration !== undefined && skill.growthDuration !== undefined) {
-        skill.duration += skill.growthDuration;
+      for (const key of Object.keys(skill)) {
+        if (!key.startsWith("growth")) {
+          continue;
+        }
+        const growthAmount = skill[key];
+        if (typeof growthAmount !== "number") {
+          continue;
+        }
+        const fieldName = key[6].toLowerCase() + key.slice(7);
+        if (typeof skill[fieldName] !== "number") {
+          continue;
+        }
+        skill[fieldName] += growthAmount;
+        const capField = `max${key.slice(6)}`;
+        if (typeof skill[capField] === "number") {
+          skill[fieldName] =
+            growthAmount < 0
+              ? Math.max(skill[fieldName], skill[capField])
+              : Math.min(skill[fieldName], skill[capField]);
+        }
       }
 
       if (skill.charges !== undefined && skill.growthCharges !== undefined) {
-        skill.charges += skill.growthCharges;
         this.dashCharges = Math.min(
           this.dashCharges + skill.growthCharges,
           skill.charges
@@ -693,9 +898,7 @@ export class Player extends THREE.Object3D {
         skill.shieldCount !== undefined &&
         skill.growthShieldCount !== undefined
       ) {
-        skill.shieldCount += skill.growthShieldCount;
         this.shieldCount = skill.shieldCount;
-
         if (!this.getObjectByName("forceField")) {
           this.createForceFieldVisual();
         } else {
@@ -726,8 +929,9 @@ export class Player extends THREE.Object3D {
       dashCharges: this.dashCharges,
       dashCooldownTimer: this.dashCooldownTimer,
       forceFieldCooldownTimer: this.forceFieldCooldownTimer,
-      freezeExplosionTimer: this.freezeExplosionTimer,
-      energyExplosionTimer: this.energyExplosionTimer,
+      slotPowers: { ...this.slotPowers },
+      powerCooldowns: { ...this.powerCooldowns },
+      secondWindUsed: this.secondWindUsed,
       active_skills: JSON.parse(JSON.stringify(this.active_skills)),
     };
   }
@@ -750,13 +954,23 @@ export class Player extends THREE.Object3D {
       "dashCharges",
       "dashCooldownTimer",
       "forceFieldCooldownTimer",
-      "freezeExplosionTimer",
-      "energyExplosionTimer",
     ];
     for (const field of numericFields) {
       if (typeof state[field] === "number") {
         this[field] = state[field];
       }
+    }
+    if (state.slotPowers) {
+      this.slotPowers = {
+        q: state.slotPowers.q ?? this.slotPowers.q,
+        e: state.slotPowers.e ?? this.slotPowers.e,
+      };
+    }
+    if (state.powerCooldowns) {
+      this.powerCooldowns = {
+        q: state.powerCooldowns.q ?? 0,
+        e: state.powerCooldowns.e ?? 0,
+      };
     }
     if (state.active_skills) {
       this.active_skills = JSON.parse(JSON.stringify(state.active_skills));
@@ -766,6 +980,7 @@ export class Player extends THREE.Object3D {
     }
     this.projectGlowing = state.projectGlowing === true;
     this.glowing = state.glowing === true;
+    this.secondWindUsed = state.secondWindUsed === true;
 
     if (this.glowing) {
       const mesh = this.children.find((child) => child.isMesh);
@@ -822,6 +1037,23 @@ export class Player extends THREE.Object3D {
       source.hit(thornsSkill.damage);
     }
 
+    const staticFieldSkill = this.active_skills.staticField;
+    if (
+      staticFieldSkill?.enabled &&
+      source?.freeze &&
+      Math.random() < staticFieldSkill.chance
+    ) {
+      source.freeze(staticFieldSkill.freezeDuration);
+      if (this.parent) {
+        spawnRingWave(this.parent, this.position.clone(), {
+          maxRadius: 1.9,
+          duration: 0.32,
+          color: 0x66eaff,
+          bandWidth: 0.55,
+        });
+      }
+    }
+
     if (this.isInvincible) {
       return false;
     }
@@ -838,6 +1070,35 @@ export class Player extends THREE.Object3D {
       }
       this.updateForceFieldVisual();
       return false;
+    }
+
+    const secondWindSkill = this.active_skills.secondWind;
+    const wouldDie = this.health - amount <= 0;
+    if (wouldDie && secondWindSkill?.enabled && !this.secondWindUsed) {
+      this.secondWindUsed = true;
+      this.health = 1;
+      this.isInvincible = true;
+      this.secondWindTimer = SECOND_WIND_INVINCIBILITY_DURATION;
+      audio.play("powerSecondWind");
+      if (this.parent) {
+        spawnFlash(this.parent, this.position.clone(), 0x4dff88, 3, 0.5);
+        spawnRingWave(this.parent, this.position.clone(), {
+          maxRadius: 3.5,
+          duration: 0.6,
+          color: 0x4dff88,
+          bandWidth: 0.6,
+        });
+      }
+
+      const revivePosition = new THREE.Vector3();
+      this.getWorldPosition(revivePosition);
+      showDamageText(amount, revivePosition);
+      const reviveMesh = this.children.find((child) => child.isMesh);
+      if (reviveMesh && reviveMesh.material) {
+        reviveMesh.material.color.set(0xff0000);
+        this.damageEffectTime = 0.2;
+      }
+      return true;
     }
 
     this.health -= amount;
@@ -862,6 +1123,13 @@ export class Player extends THREE.Object3D {
       }
     }
     return true;
+  }
+
+  onEnemyKilled() {
+    const skill = this.active_skills.adrenaline;
+    if (skill?.enabled) {
+      this.adrenalineTimer = skill.duration;
+    }
   }
 
   getCollisionBoxAt(pos) {

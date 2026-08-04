@@ -1,5 +1,6 @@
 import React from "react";
 import { audio } from "../core/AudioEngine.js";
+import { POWER_DEFS } from "../core/powers.js";
 
 const SKILL_ICONS = {
   dash: "./assets/imgs/dash.png",
@@ -9,6 +10,13 @@ const SKILL_ICONS = {
   thorns: "./assets/imgs/thorns.png",
   glowing: "./assets/imgs/glowing.png",
   projectGlowing: "./assets/imgs/project_glowing.png",
+  orbitalBlades: "./assets/imgs/orbitalblades.png",
+  twinShot: "./assets/imgs/twinshot.png",
+  berserker: "./assets/imgs/berserker.png",
+  overcharge: "./assets/imgs/overcharge.png",
+  adrenaline: "./assets/imgs/adrenaline.png",
+  secondWind: "./assets/imgs/secondwind.png",
+  staticField: "./assets/imgs/staticfield.png",
 };
 
 const SKILL_COLORS = {
@@ -19,6 +27,38 @@ const SKILL_COLORS = {
   thorns: "#00ff00",
   glowing: "#90f5bc",
   projectGlowing: "#ffffff",
+  orbitalBlades: "#66ccff",
+  twinShot: "#ffaa55",
+  berserker: "#ff3355",
+  overcharge: "#ffee00",
+  adrenaline: "#ff77aa",
+  secondWind: "#88ffcc",
+  staticField: "#66eaff",
+};
+
+const PASSIVE_EMOJI = {
+  orbitalBlades: "🔮",
+  twinShot: "🏹",
+  berserker: "💢",
+  overcharge: "✨",
+  adrenaline: "🏃",
+  secondWind: "🕊️",
+  staticField: "🧊",
+};
+
+const SKILL_DESCRIPTIONS = {
+  dash: "Press SPACE to dash forward, dodging danger.",
+  forceField: "Charges shields around you that block one hit each.",
+  thorns: "Reflects damage back at enemies that hit you.",
+  glowing: "You shine, lighting up the night around you.",
+  projectGlowing: "Your projectiles glow, lighting up wherever they fly.",
+  orbitalBlades: "Blades orbit around you, slicing anything they touch.",
+  twinShot: "Fires an extra projectile with every shot.",
+  berserker: "Deals more damage the lower your health gets.",
+  overcharge: "Critical hits trigger a small blast that hits nearby enemies.",
+  adrenaline: "Killing an enemy briefly boosts your speed and attack speed.",
+  secondWind: "Survive a fatal hit once, becoming briefly invincible.",
+  staticField: "Enemies that hit you have a chance to get frozen.",
 };
 
 function formatLabel(key) {
@@ -57,6 +97,9 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
       }}
     >
       <style>{`
+        .skill-card-wrap {
+          position: relative;
+        }
         .skill-card {
           display: flex;
           flex-direction: column;
@@ -77,6 +120,29 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
           transform: translateY(-5px);
           border-color: var(--accent);
           box-shadow: 0 0 18px var(--accent);
+        }
+        .skill-tooltip {
+          position: absolute;
+          left: 50%;
+          bottom: 100%;
+          transform: translate(-50%, -4px);
+          width: 190px;
+          background: #0a0a12;
+          border: 2px solid var(--accent);
+          border-radius: 6px;
+          padding: 10px 12px;
+          font-size: 9px;
+          line-height: 1.6;
+          color: #ddd;
+          text-align: center;
+          box-shadow: 0 0 14px rgba(0, 0, 0, 0.6);
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.12s ease;
+          z-index: 10;
+        }
+        .skill-card-wrap:hover .skill-tooltip {
+          opacity: 1;
         }
       `}</style>
 
@@ -115,66 +181,93 @@ export default function SkillChoiceModal({ skills, activeSkills, onChoose }) {
           {skills.map((skill) => {
             const data = activeSkills?.[skill];
             const isUnlocked = data?.enabled;
-            const accent = SKILL_COLORS[skill] ?? "#aaaaaa";
+            const powerDef = POWER_DEFS[skill];
+            const accent =
+              SKILL_COLORS[skill] ?? (powerDef ? "#00e5ff" : "#aaaaaa");
+            const iconSrc = SKILL_ICONS[skill] ?? powerDef?.icon;
+            const description = SKILL_DESCRIPTIONS[skill] ?? powerDef?.description;
 
             return (
-              <button
+              <div
                 key={skill}
-                className="skill-card"
+                className="skill-card-wrap"
                 style={{ "--accent": accent }}
-                onMouseEnter={() => audio.play("uiHover")}
-                onClick={() => {
-                  audio.play("skillSelect");
-                  onChoose(skill);
-                }}
               >
-                <img
-                  src={SKILL_ICONS[skill]}
-                  alt={skill}
-                  style={{
-                    width: "56px",
-                    height: "56px",
-                    imageRendering: "pixelated",
-                    filter: `drop-shadow(0 0 6px ${accent})`,
-                  }}
-                />
-                <div
-                  style={{
-                    fontSize: "10px",
-                    textAlign: "center",
-                    color: accent,
+                <button
+                  className="skill-card"
+                  onMouseEnter={() => audio.play("uiHover")}
+                  onClick={() => {
+                    audio.play("skillSelect");
+                    onChoose(skill);
                   }}
                 >
-                  {formatLabel(skill)}
-                </div>
-                {isUnlocked ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "5px",
-                      fontSize: "8px",
-                      color: "#aaa",
-                    }}
-                  >
-                    {skillStats(data).map((stat) => (
-                      <div key={stat.label}>
-                        {stat.label}: {stat.value}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+                  {iconSrc ? (
+                    <img
+                      src={iconSrc}
+                      alt={skill}
+                      style={{
+                        width: "56px",
+                        height: "56px",
+                        imageRendering: "pixelated",
+                        filter: `drop-shadow(0 0 6px ${accent})`,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: "56px",
+                        height: "56px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "32px",
+                        filter: `drop-shadow(0 0 6px ${accent})`,
+                      }}
+                    >
+                      {powerDef?.emoji ?? PASSIVE_EMOJI[skill] ?? "✦"}
+                    </div>
+                  )}
                   <div
                     style={{
                       fontSize: "10px",
-                      color: "#ffee00",
-                      textShadow: "0 0 8px rgba(255, 238, 0, 0.6)",
+                      textAlign: "center",
+                      color: accent,
                     }}
                   >
-                    NEW!
+                    {powerDef?.label ?? formatLabel(skill)}
                   </div>
+                  {isUnlocked ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "5px",
+                        fontSize: "8px",
+                        color: "#aaa",
+                      }}
+                    >
+                      {skillStats(data).map((stat) => (
+                        <div key={stat.label}>
+                          {stat.label}: {stat.value}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "#ffee00",
+                        textShadow: "0 0 8px rgba(255, 238, 0, 0.6)",
+                      }}
+                    >
+                      NEW!
+                    </div>
+                  )}
+                </button>
+                {description && (
+                  <div className="skill-tooltip">{description}</div>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>

@@ -1,14 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Game } from "./threejs/Game";
-import MainMenu from "./components/MainMenu.jsx";
+import BootScreen from "./components/BootScreen.jsx";
+import MenuScreen from "./components/MenuScreen.jsx";
 import CustomizeMenu from "./components/CustomizeMenu.jsx";
 import MonsterLabMenu from "./components/MonsterLabMenu.jsx";
 import OptionsMenu from "./components/OptionsMenu.jsx";
+import PowersMenu from "./components/PowersMenu.jsx";
 import LevelUpModal from "./components/LevelUpModal.jsx";
 import SkillChoiceModal from "./components/SkillChoiceModal.jsx";
-import CoinIcon from "./components/CoinIcon.jsx";
 import Banner from "./components/Banner.jsx";
 import DifficultySkull from "./components/DifficultySkull.jsx";
+import DebugOverlays from "./components/DebugOverlays.jsx";
+import VitalsHud from "./components/VitalsHud.jsx";
+import SkillHud from "./components/SkillHud.jsx";
+import PauseOverlay from "./components/PauseOverlay.jsx";
+import ConfirmLeaveModal from "./components/ConfirmLeaveModal.jsx";
+import GameOverOverlay from "./components/GameOverOverlay.jsx";
 import { addCoins as bankCoins } from "./core/wallet.js";
 import { isDebugMode } from "./core/debug.js";
 import {
@@ -18,16 +25,18 @@ import {
   hasRun,
   isAutoSaveEnabled,
 } from "./core/saveGame.js";
-import VolumeControls from "./components/VolumeControls.jsx";
 import TouchJoystick from "./components/TouchJoystick.jsx";
-import { addRunToHistory, formatDuration } from "./core/history.js";
+import { addRunToHistory } from "./core/history.js";
 import { audio } from "./core/AudioEngine.js";
 
 export default function App() {
   const threeRef = useRef(null);
   const [screen, setScreen] = useState("boot");
   const [gameOver, setGameOver] = useState(false);
-  const [gameOverStats, setGameOverStats] = useState({ level: 1, elapsedTime: 0 });
+  const [gameOverStats, setGameOverStats] = useState({
+    level: 1,
+    elapsedTime: 0,
+  });
   const [isCameraInfoVisible, setIsCameraInfoVisible] = useState(false);
   const [isPlayerStatsVisible, setIsPlayerStatsVisible] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -35,15 +44,20 @@ export default function App() {
   const [skillChoices, setSkillChoices] = useState(null);
   const [banner, setBanner] = useState(null);
   const [continuePrompt, setContinuePrompt] = useState(false);
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const pendingLoadRef = useRef(null);
   const [isTouchDevice] = useState(
     () =>
       typeof window !== "undefined" &&
-      ("ontouchstart" in window || navigator.maxTouchPoints > 0)
+      ("ontouchstart" in window || navigator.maxTouchPoints > 0),
   );
 
   const handleJoystickChange = (x, z) => {
     gameRef.current?.scene?.player?.input?.setMoveVector(x, z);
+  };
+
+  const handleAimJoystickChange = (x, z) => {
+    gameRef.current?.scene?.player?.input?.setAimVector(x, z);
   };
 
   const tapSkillKey = (code) => {
@@ -75,10 +89,10 @@ export default function App() {
       xpToLevelUp: 10,
       active_skills: {
         dash: { enabled: false, cooldown: 0 },
-        energyExplosion: { enabled: false, cooldown: 0, damage: 0 },
-        freezeExplosion: { enabled: false, cooldown: 0, freezeDuration: 0 },
         forceField: { enabled: false, shieldCount: 0 },
       },
+      slotPowers: { q: null, e: null },
+      powerCooldowns: { q: 0, e: 0 },
     },
   });
 
@@ -88,7 +102,10 @@ export default function App() {
     if (screen !== "boot") {
       return undefined;
     }
-    const enter = () => setScreen("menu");
+    const enter = () => {
+      audio.play("gameStart");
+      setScreen("menu");
+    };
     window.addEventListener("keydown", enter);
     window.addEventListener("pointerdown", enter);
     return () => {
@@ -185,8 +202,9 @@ export default function App() {
             xpToLevelUp: player?.getXPToLevelUp?.() ?? 10,
             active_skills: player?.active_skills ?? {},
             shieldCount: player?.shieldCount ?? 0,
-            freezeExplosionTimer: player?.freezeExplosionTimer ?? 0,
-            energyExplosionTimer: player?.energyExplosionTimer ?? 0,
+            slotPowers: player?.slotPowers ?? { q: null, e: null },
+            powerCooldowns: player?.powerCooldowns ?? { q: 0, e: 0 },
+            secondWindUsed: player?.secondWindUsed ?? false,
             dashCooldownTimer: player?.dashCooldownTimer ?? 0,
             dashCharges: player?.dashCharges ?? 0,
             forceFieldCooldownTimer: player?.forceFieldCooldownTimer ?? 0,
@@ -215,6 +233,7 @@ export default function App() {
       Digit5: () => gameRef.current?.scene?.debugAdjustDifficulty(1),
       Digit6: () => gameRef.current?.scene?.debugAdjustDifficulty(-1),
       Digit7: () => gameRef.current?.scene?.player?.debugGodMode(),
+      Digit0: () => gameRef.current?.scene?.debugSpawnItemNearby(),
     };
 
     function onKeyDown(event) {
@@ -255,164 +274,41 @@ export default function App() {
     setLevelUpOpen(false);
     setSkillChoices(null);
     setBanner(null);
+    setConfirmLeaveOpen(false);
   };
 
   if (screen === "boot") {
-    return (
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "#08080e",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "48px",
-          fontFamily: '"Press Start 2P", monospace',
-          cursor: "pointer",
-        }}
-      >
-        <style>{`
-          @keyframes boot-blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.15; }
-          }
-        `}</style>
-        <h1
-          style={{
-            fontSize: "min(7vw, 80px)",
-            letterSpacing: "10px",
-            color: "#ffee00",
-            textShadow: "0 0 24px rgba(255, 238, 0, 0.5), 5px 5px 0 #7a5c00",
-            margin: 0,
-          }}
-        >
-          BALACORO
-        </h1>
-        <div
-          style={{
-            fontSize: "14px",
-            letterSpacing: "4px",
-            color: "#fff",
-            textShadow: "2px 2px #000",
-            animation: "boot-blink 1.6s steps(1) infinite",
-          }}
-        >
-          PRESS ANY KEY
-        </div>
-      </div>
-    );
+    return <BootScreen />;
   }
 
   if (screen === "menu") {
     const savedGame = continuePrompt ? loadRun() : null;
     return (
-      <>
-        <MainMenu
-          onPlay={() => {
-            if (hasRun()) {
-              setContinuePrompt(true);
-            } else {
-              setScreen("game");
-            }
-          }}
-          onCustomize={() => setScreen("customize")}
-          onMonsterLab={() => setScreen("monsterlab")}
-          onOptions={() => setScreen("options")}
-        />
-        {continuePrompt && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(0, 0, 0, 0.8)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 200,
-              fontFamily: '"Press Start 2P", monospace',
-              color: "#fff",
-            }}
-          >
-            <div
-              style={{
-                background: "#101018",
-                border: "2px solid #ffee00",
-                borderRadius: "10px",
-                padding: "28px 32px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "18px",
-                textAlign: "center",
-              }}
-            >
-              <div style={{ fontSize: "16px", color: "#ffee00" }}>
-                SAVED RUN FOUND
-              </div>
-              <div
-                style={{
-                  fontSize: "10px",
-                  color: "#aaa",
-                  letterSpacing: "1px",
-                  lineHeight: "1.8",
-                }}
-              >
-                LEVEL {savedGame?.scene?.player?.level ?? "?"} •{" "}
-                {formatDuration(savedGame?.scene?.elapsedTime ?? 0)} •{" "}
-                {Math.floor(savedGame?.scene?.coinsEarned ?? 0)} COINS
-              </div>
-              <div style={{ display: "flex", gap: "14px" }}>
-                <button
-                  onMouseEnter={() => audio.play("uiHover")}
-                  onClick={() => {
-                    audio.play("uiClick");
-                    pendingLoadRef.current = loadRun();
-                    setContinuePrompt(false);
-                    setScreen("game");
-                  }}
-                  style={{
-                    fontFamily: '"Press Start 2P", monospace',
-                    fontSize: "12px",
-                    padding: "12px 20px",
-                    background: "#ffee00",
-                    color: "#000",
-                    border: "none",
-                    cursor: "pointer",
-                    borderRadius: "4px",
-                    letterSpacing: "2px",
-                  }}
-                >
-                  CONTINUE
-                </button>
-                <button
-                  onMouseEnter={() => audio.play("uiHover")}
-                  onClick={() => {
-                    audio.play("uiClick");
-                    clearRun();
-                    setContinuePrompt(false);
-                    setScreen("game");
-                  }}
-                  style={{
-                    fontFamily: '"Press Start 2P", monospace',
-                    fontSize: "12px",
-                    padding: "12px 20px",
-                    background: "transparent",
-                    color: "#fff",
-                    border: "2px solid #fff",
-                    cursor: "pointer",
-                    borderRadius: "4px",
-                    letterSpacing: "2px",
-                  }}
-                >
-                  NEW GAME
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </>
+      <MenuScreen
+        onPlay={() => {
+          if (hasRun()) {
+            setContinuePrompt(true);
+          } else {
+            setScreen("game");
+          }
+        }}
+        onCustomize={() => setScreen("customize")}
+        onMonsterLab={() => setScreen("monsterlab")}
+        onOptions={() => setScreen("options")}
+        onPowers={() => setScreen("powers")}
+        continuePrompt={continuePrompt}
+        savedGame={savedGame}
+        onContinueGame={() => {
+          pendingLoadRef.current = loadRun();
+          setContinuePrompt(false);
+          setScreen("game");
+        }}
+        onNewGame={() => {
+          clearRun();
+          setContinuePrompt(false);
+          setScreen("game");
+        }}
+      />
     );
   }
 
@@ -424,6 +320,10 @@ export default function App() {
     return <OptionsMenu onBack={() => setScreen("menu")} />;
   }
 
+  if (screen === "powers") {
+    return <PowersMenu onBack={() => setScreen("menu")} />;
+  }
+
   if (screen === "monsterlab") {
     return <MonsterLabMenu onBack={() => setScreen("menu")} />;
   }
@@ -432,226 +332,31 @@ export default function App() {
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={threeRef} style={{ width: "100%", height: "100%" }} />
 
-      {isCameraInfoVisible && (
-        <div
-          style={{
-            position: "absolute",
-            top: 80,
-            left: 10,
-            color: "white",
-            background: "rgba(0,0,0,0.5)",
-            padding: "5px",
-            borderRadius: "4px",
-            pointerEvents: "none",
-            fontFamily: "monospace",
-            fontSize: "14px",
-          }}
-        >
-          <div>
-            <strong>Camera Pos:</strong> X={stats.camPos.x.toFixed(2)}, Y=
-            {stats.camPos.y.toFixed(2)}, Z={stats.camPos.z.toFixed(2)}
-          </div>
-          <div>
-            <strong>Difficulty:</strong> {stats.difficulty}
-          </div>
-          <div>
-            <strong>Total Time:</strong> {stats.elapsedTime.toFixed(2)} s
-          </div>
-        </div>
-      )}
+      <VitalsHud
+        player={stats.player}
+        coins={stats.coins}
+        clock={stats.clock}
+      />
 
-      {isPlayerStatsVisible && (
-      <div
-        style={{
-          position: "absolute",
-          top: 160,
-          left: 10,
-          color: "white",
-          background: "rgba(0,0,0,0.5)",
-          padding: "5px",
-          borderRadius: "4px",
-          pointerEvents: "none",
-          fontFamily: "monospace",
-          fontSize: "14px",
-          maxWidth: "300px",
-        }}
-      >
-        <div>
-          <strong>Health:</strong> {stats.player.health}
-        </div>
-        <div>
-          <strong>Speed:</strong> {stats.player.speed}
-        </div>
-        <div>
-          <strong>Damage:</strong> {stats.player.damage}
-        </div>
-        <div>
-          <strong>Attack Speed:</strong> {stats.player.attackSpeed.toFixed(2)}
-        </div>
-        <div>
-          <strong>Sharpening:</strong> {stats.player.sharpening}
-        </div>
-        <div>
-          <strong>Health Regen:</strong> {stats.player.healthRegen}
-        </div>
-        <div>
-          <strong>Critical Damage:</strong> {stats.player.criticalDamage}
-        </div>
-        <div>
-          <strong>Critical Chance:</strong>{" "}
-          {(stats.player.criticalChance * 100).toFixed(1)}%
-        </div>
-        <div>
-          <strong>Life Steal:</strong> {stats.player.lifeSteal}
-        </div>
-        <div>
-          <strong>Level:</strong> {stats.player.level}
-        </div>
-        <div>
-          <strong>XP:</strong> {stats.player.currentXP.toFixed(1)} /{" "}
-          {stats.player.xpToLevelUp.toFixed(1)}
-        </div>
-
-        <div>
-          <strong>Skills:</strong>
-        </div>
-        <ul>
-          <li>
-            Dash: {stats.player.active_skills.dash?.enabled ? "Yes" : "No"} (CD:{" "}
-            {stats.player.active_skills.dash?.cooldown}s)
-          </li>
-          <li>
-            Energy Explosion:{" "}
-            {stats.player.active_skills.energyExplosion?.enabled ? "Yes" : "No"}{" "}
-            (CD: {stats.player.active_skills.energyExplosion?.cooldown}s, DMG:{" "}
-            {stats.player.active_skills.energyExplosion?.damage})
-          </li>
-          <li>
-            Freeze Explosion:{" "}
-            {stats.player.active_skills.freezeExplosion?.enabled ? "Yes" : "No"}{" "}
-            (CD: {stats.player.active_skills.freezeExplosion?.cooldown}s,
-            Duration:{" "}
-            {stats.player.active_skills.freezeExplosion?.freezeDuration}s)
-          </li>
-          <li>
-            Force Field:{" "}
-            {stats.player.active_skills.forceField?.enabled ? "Yes" : "No"}{" "}
-            (Shields: {stats.player.active_skills.forceField?.shieldCount})
-          </li>
-          <li>
-            Thorns: {stats.player.active_skills.thorns?.enabled ? "Yes" : "No"}{" "}
-            (DMG: {stats.player.active_skills.thorns?.damage})
-          </li>
-          <li>
-            Glowing:{" "}
-            {stats.player.active_skills.glowing?.enabled ? "Yes" : "No"}
-          </li>
-          <li>
-            Project Glowing:{" "}
-            {stats.player.active_skills.projectGlowing?.enabled ? "Yes" : "No"}
-          </li>
-        </ul>
-      </div>
-      )}
-
-      <div
-        style={{
-          position: "absolute",
-          top: "10px",
-          left: "10px",
-          width: "220px",
-          height: "14px",
-          background: "#111",
-          border: "2px solid #fff",
-          boxShadow: "0 0 0 2px #444, 0 0 6px #b3b1b3",
-          imageRendering: "pixelated",
-          borderRadius: "3px",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            width: `${(stats.player.health / stats.player.maxHealth) * 100}%`,
-            height: "100%",
-            background: "#ff3333",
-            transition: "width 0.3s ease-in-out",
-            imageRendering: "pixelated",
-          }}
-        />
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          top: "34px",
-          left: "10px",
-          width: "220px",
-          height: "8px",
-          background: "#111",
-          border: "2px solid #fff",
-          boxShadow: "0 0 0 2px #444, 0 0 6px #b3b1b3",
-          imageRendering: "pixelated",
-          borderRadius: "3px",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            width: `${
-              (stats.player.currentXP / stats.player.xpToLevelUp) * 100
-            }%`,
-            height: "100%",
-            background: "#00ff6e",
-            transition: "width 0.3s ease-in-out",
-            imageRendering: "pixelated",
-          }}
-        ></div>
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          top: "12px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          fontFamily: '"Press Start 2P", monospace',
-          fontSize: "16px",
-          color: "#ffd23e",
-          textShadow: "2px 2px #000",
-          pointerEvents: "none",
-          zIndex: 10,
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-        }}
-      >
-        <CoinIcon size={16} />
-        {stats.coins}
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          bottom: "232px",
-          right: "20px",
-          width: "200px",
-          textAlign: "center",
-          fontFamily: '"Press Start 2P", monospace',
-          fontSize: "13px",
-          color: "#fff",
-          textShadow: "2px 2px #000",
-          pointerEvents: "none",
-          zIndex: 20,
-        }}
-      >
-        {stats.clock}
-      </div>
+      <DebugOverlays
+        isCameraInfoVisible={isCameraInfoVisible}
+        isPlayerStatsVisible={isPlayerStatsVisible}
+        stats={stats}
+      />
 
       <DifficultySkull power={stats.power} progress={stats.powerProgress} />
       <Banner banner={banner} />
 
       {isTouchDevice && !isPaused && !gameOver && (
-        <TouchJoystick onChange={handleJoystickChange} />
+        <>
+          <TouchJoystick side="left" onChange={handleJoystickChange} />
+          <TouchJoystick
+            side="right"
+            knobColor="rgba(0, 229, 255, 0.85)"
+            knobGlow="rgba(0, 229, 255, 0.55)"
+            onChange={handleAimJoystickChange}
+          />
+        </>
       )}
 
       {levelUpOpen && (
@@ -676,575 +381,47 @@ export default function App() {
         />
       )}
 
-      <div
-        id="hud"
-        style={{
-          position: "absolute",
-          top: "50%",
-          right: "20px",
-          transform: "translateY(-50%)",
-          zIndex: 10,
-          display: "flex",
-          flexDirection: "column",
-
-          gap: "12px",
-        }}
-      >
-        {stats.player.active_skills.dash?.enabled && (
-          <div
-            id="dashContainer"
-            onClick={() => tapSkillKey("Space")}
-            style={{
-              position: "relative",
-              width: "48px",
-              height: "48px",
-              transform:
-                stats.player.dashCharges >=
-                (stats.player.active_skills.dash.charges ?? 1)
-                  ? "scale(1.2)"
-                  : "scale(1)",
-              transition: "transform 0.2s ease",
-            }}
-          >
-            <img
-              id="dashIcon"
-              src="./assets/imgs/dash.png"
-              style={{
-                width: "100%",
-                height: "100%",
-                opacity: stats.player.dashCharges > 0 ? 1 : 0.4,
-                transition: "opacity 0.2s ease",
-                imageRendering: "pixelated",
-              }}
-              alt="Dash Icon"
-            />
-            {stats.player.dashCooldownTimer > 0 && (
-              <div
-                style={{
-                  position: "absolute",
-                  width: "100%",
-                  height: "100%",
-                  top: 0,
-                  left: 0,
-                  background: `conic-gradient(
-          rgba(0, 0, 0, 0.6) ${
-            (stats.player.dashCooldownTimer /
-              stats.player.active_skills.dash.cooldown) *
-            360
-          }deg,
-          transparent 0deg
-        )`,
-                  borderRadius: "50%",
-                  pointerEvents: "none",
-                  zIndex: 2,
-                }}
-              />
-            )}
-            <span
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "12px",
-                color: "#fff",
-                textShadow: "1px 1px #000",
-                pointerEvents: "none",
-                zIndex: 3,
-              }}
-            >
-              {stats.player.dashCharges > 0
-                ? stats.player.dashCharges
-                : Math.ceil(stats.player.dashCooldownTimer)}
-            </span>
-          </div>
-        )}
-
-        {stats.player.active_skills.freezeExplosion?.enabled && (
-          <div
-            id="freezeExplosionContainer"
-            onClick={() => tapSkillKey("KeyQ")}
-            style={{
-              position: "relative",
-              width: "48px",
-              height: "48px",
-              transform:
-                +stats.player.freezeExplosionTimer.toFixed(1) <= 0
-                  ? "scale(1.2)"
-                  : "scale(1)",
-              transition: "transform 0.2s ease",
-            }}
-          >
-            <img
-              src="./assets/imgs/freeze.png"
-              alt="Freeze Explosion Icon"
-              style={{
-                width: "100%",
-                height: "100%",
-                imageRendering: "pixelated",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                width: "100%",
-                height: "100%",
-                top: 0,
-                left: 0,
-                background: `conic-gradient(
-          rgba(0, 0, 0, 0.6) ${
-            (stats.player.freezeExplosionTimer /
-              stats.player.active_skills.freezeExplosion.cooldown) *
-            360
-          }deg,
-          transparent 0deg
-        )`,
-                borderRadius: "50%",
-                pointerEvents: "none",
-                zIndex: 2,
-              }}
-            />
-            <span
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "12px",
-                color: "#0ff",
-                textShadow: "1px 1px #000",
-                pointerEvents: "none",
-                zIndex: 3,
-              }}
-            >
-              {stats.player.freezeExplosionTimer > 0
-                ? Math.ceil(stats.player.freezeExplosionTimer)
-                : stats.player.active_skills.freezeExplosion?.duration ?? 0}
-            </span>
-            <span
-              style={{
-                position: "absolute",
-                bottom: "2px",
-                right: "4px",
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "10px",
-                color: "#fff",
-                textShadow: "1px 1px #000",
-                pointerEvents: "none",
-                zIndex: 3,
-              }}
-            >
-              Q
-            </span>
-          </div>
-        )}
-
-        {stats.player.active_skills.energyExplosion?.enabled && (
-          <div
-            id="energyExplosionContainer"
-            onClick={() => tapSkillKey("KeyE")}
-            style={{
-              position: "relative",
-              width: "48px",
-              height: "48px",
-              transform:
-                +stats.player.energyExplosionTimer.toFixed(1) <= 0
-                  ? "scale(1.2)"
-                  : "scale(1)",
-              transition: "transform 0.2s ease",
-            }}
-          >
-            <img
-              src="./assets/imgs/explosion.png"
-              alt="Energy Explosion Icon"
-              style={{
-                width: "100%",
-                height: "100%",
-                imageRendering: "pixelated",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                width: "100%",
-                height: "100%",
-                top: 0,
-                left: 0,
-                background: `conic-gradient(
-          rgba(0, 0, 0, 0.6) ${
-            (stats.player.energyExplosionTimer /
-              stats.player.active_skills.energyExplosion.cooldown) *
-            360
-          }deg,
-          transparent 0deg
-        )`,
-                borderRadius: "50%",
-                pointerEvents: "none",
-                zIndex: 2,
-              }}
-            />
-            <span
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "12px",
-                color: "#ff0",
-                textShadow: "1px 1px #000",
-                pointerEvents: "none",
-                zIndex: 3,
-              }}
-            >
-              {stats.player.energyExplosionTimer > 0
-                ? Math.ceil(stats.player.energyExplosionTimer)
-                : stats.player.active_skills.energyExplosion?.damage ?? 0}
-            </span>
-            <span
-              style={{
-                position: "absolute",
-                bottom: "2px",
-                right: "4px",
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "10px",
-                color: "#fff",
-                textShadow: "1px 1px #000",
-                pointerEvents: "none",
-                zIndex: 3,
-              }}
-            >
-              E
-            </span>
-          </div>
-        )}
-
-        {stats.player.active_skills.forceField?.enabled && (
-          <div
-            id="shieldContainer"
-            style={{
-              position: "relative",
-              width: "48px",
-              height: "48px",
-              transform:
-                stats.player.shieldCount >=
-                (stats.player.active_skills.forceField.shieldCount ?? 1)
-                  ? "scale(1.2)"
-                  : "scale(1)",
-              transition: "transform 0.2s ease",
-            }}
-          >
-            <img
-              id="shieldIcon"
-              src="./assets/imgs/shield.png"
-              alt="Shield Icon"
-              style={{
-                width: "100%",
-                height: "100%",
-                imageRendering: "pixelated",
-              }}
-            />
-            {stats.player.forceFieldCooldownTimer > 0 && (
-              <div
-                style={{
-                  position: "absolute",
-                  width: "100%",
-                  height: "100%",
-                  top: 0,
-                  left: 0,
-                  background: `conic-gradient(
-          rgba(0, 0, 0, 0.6) ${
-            (stats.player.forceFieldCooldownTimer /
-              Math.min(
-                stats.player.active_skills.forceField.cooldown,
-                stats.player.active_skills.forceField.maxCooldown
-              )) *
-            360
-          }deg,
-          transparent 0deg
-        )`,
-                  borderRadius: "50%",
-                  pointerEvents: "none",
-                  zIndex: 2,
-                }}
-              />
-            )}
-            <span
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "12px",
-                color: "#fff",
-                textShadow: "1px 1px #000",
-                pointerEvents: "none",
-              }}
-            >
-              {stats.player.shieldCount}
-            </span>
-          </div>
-        )}
-
-        {stats.player.active_skills.thorns?.enabled && (
-          <div
-            id="thornsContainer"
-            style={{
-              position: "relative",
-              width: "48px",
-              height: "48px",
-            }}
-          >
-            <img
-              id="thornsIcon"
-              src="./assets/imgs/thorns.png"
-              alt="Thorns Icon"
-              style={{
-                width: "100%",
-                height: "100%",
-                imageRendering: "pixelated",
-              }}
-            />
-            <span
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "12px",
-                color: "#fff",
-                textShadow: "1px 1px #000",
-                pointerEvents: "none",
-              }}
-            >
-              {stats.player.active_skills.thorns.damage}
-            </span>
-          </div>
-        )}
-
-        {stats.player.active_skills.glowing?.enabled && (
-          <img
-            id="glowingIcon"
-            src="./assets/imgs/glowing.png"
-            alt="Glowing Icon"
-            style={{
-              width: "48px",
-              height: "48px",
-              imageRendering: "pixelated",
-              filter: "drop-shadow(0 0 4px #f4f025 )",
-            }}
-          />
-        )}
-
-        {stats.player.active_skills.projectGlowing?.enabled && (
-          <img
-            id="projectGlowingIcon"
-            src="./assets/imgs/project_glowing.png"
-            alt="Project Glowing Icon"
-            style={{
-              width: "48px",
-              height: "48px",
-              imageRendering: "pixelated",
-              filter: "drop-shadow(0 0 4px #0f0)",
-            }}
-          />
-        )}
-      </div>
+      <SkillHud player={stats.player} tapSkillKey={tapSkillKey} />
 
       {isPaused && !gameOver && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            background: "rgba(0, 0, 0, 0.7)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-            fontFamily: '"Press Start 2P", monospace',
-            color: "#fff",
+        <PauseOverlay
+          onResume={() => {
+            if (gameRef.current) {
+              gameRef.current.scene.togglePause();
+            }
           }}
-        >
-          <h1
-            style={{
-              fontSize: "40px",
-              marginBottom: "20px",
-              textShadow: "0 0 20px #ffffff",
-            }}
-          >
-            PAUSED
-          </h1>
-          <button
-            onMouseEnter={() => audio.play("uiHover")}
-            onClick={() => {
-              audio.play("uiClick");
-              if (gameRef.current) {
-                gameRef.current.scene.togglePause();
-              }
-            }}
-            style={{
-              fontFamily: '"Press Start 2P", monospace',
-              fontSize: "14px",
-              padding: "14px 28px",
-              marginBottom: "16px",
-              background: "#fff",
-              color: "#000",
-              border: "none",
-              cursor: "pointer",
-              borderRadius: "4px",
-              letterSpacing: "2px",
-            }}
-          >
-            RESUME
-          </button>
-          <button
-            onMouseEnter={() => audio.play("uiHover")}
-            onClick={() => {
-              audio.play("uiClick");
-              if (gameRef.current) {
-                saveRun(gameRef.current.createSaveSnapshot());
-                returnToMenu();
-              }
-            }}
-            style={{
-              fontFamily: '"Press Start 2P", monospace',
-              fontSize: "14px",
-              padding: "14px 28px",
-              marginBottom: "16px",
-              background: "#ffee00",
-              color: "#000",
-              border: "none",
-              cursor: "pointer",
-              borderRadius: "4px",
-              letterSpacing: "2px",
-            }}
-          >
-            SAVE &amp; QUIT
-          </button>
-          <button
-            onMouseEnter={() => audio.play("uiHover")}
-            onClick={() => {
-              audio.play("uiClick");
+          onSaveQuit={() => {
+            if (gameRef.current) {
+              saveRun(gameRef.current.createSaveSnapshot());
               returnToMenu();
-            }}
-            style={{
-              fontFamily: '"Press Start 2P", monospace',
-              fontSize: "14px",
-              padding: "14px 28px",
-              background: "transparent",
-              color: "#fff",
-              border: "2px solid #fff",
-              cursor: "pointer",
-              borderRadius: "4px",
-              letterSpacing: "2px",
-            }}
-          >
-            BACK TO MENU
-          </button>
+            }
+          }}
+          onBackToMenu={() => setConfirmLeaveOpen(true)}
+        />
+      )}
 
-          <div
-            style={{
-              marginTop: "40px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "20px",
-              width: "280px",
-              padding: "20px 24px",
-              background: "rgba(255, 255, 255, 0.06)",
-              border: "1px solid rgba(255, 255, 255, 0.25)",
-              borderRadius: "6px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "11px",
-                letterSpacing: "3px",
-                color: "#ffee00",
-                textAlign: "center",
-              }}
-            >
-              OPTIONS
-            </div>
-            <VolumeControls />
-          </div>
-        </div>
+      {isPaused && !gameOver && confirmLeaveOpen && (
+        <ConfirmLeaveModal
+          onSaveLeave={() => {
+            if (gameRef.current) {
+              saveRun(gameRef.current.createSaveSnapshot());
+            }
+            setConfirmLeaveOpen(false);
+            returnToMenu();
+          }}
+          onLeaveWithoutSaving={() => {
+            setConfirmLeaveOpen(false);
+            returnToMenu();
+          }}
+          onCancel={() => setConfirmLeaveOpen(false)}
+        />
       )}
 
       {gameOver && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            background: "rgba(0, 0, 0, 0.88)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-            fontFamily: '"Press Start 2P", monospace',
-            color: "#fff",
-          }}
-        >
-          <h1
-            style={{
-              fontSize: "48px",
-              marginBottom: "32px",
-              color: "#ff3333",
-              textShadow: "0 0 20px #ff0000",
-            }}
-          >
-            GAME OVER
-          </h1>
-          <p style={{ fontSize: "16px", marginBottom: "12px" }}>
-            Level: {gameOverStats.level}
-          </p>
-          <p style={{ fontSize: "16px", marginBottom: "12px" }}>
-            Time: {formatDuration(gameOverStats.elapsedTime ?? 0)}
-          </p>
-          <p style={{ fontSize: "16px", marginBottom: "12px" }}>
-            Difficulty: {gameOverStats.power ?? 0}
-          </p>
-          <p
-            style={{
-              fontSize: "16px",
-              marginBottom: "40px",
-              color: "#ffd23e",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <CoinIcon size={16} /> +{gameOverStats.coins ?? 0}
-          </p>
-          <button
-            onMouseEnter={() => audio.play("uiHover")}
-            onClick={() => location.reload()}
-            style={{
-              fontFamily: '"Press Start 2P", monospace',
-              fontSize: "14px",
-              padding: "14px 28px",
-              background: "#fff",
-              color: "#000",
-              border: "none",
-              cursor: "pointer",
-              borderRadius: "4px",
-              letterSpacing: "2px",
-            }}
-          >
-            RESTART
-          </button>
-        </div>
+        <GameOverOverlay
+          stats={gameOverStats}
+          onRestart={() => location.reload()}
+        />
       )}
     </div>
   );

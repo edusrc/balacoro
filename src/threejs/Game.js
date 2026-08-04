@@ -47,6 +47,7 @@ export class Game {
         totalElapsedTime: this.totalElapsedTime,
         nightCount: this.nightCount ?? 0,
         bloodMoonEnded: this.bloodMoonEnded === true,
+        music: audio.getMusicSnapshot(),
       },
     };
   }
@@ -54,6 +55,7 @@ export class Game {
   init() {
     this.initRenderer();
     this.initSceneAndCamera();
+    this.bloodMoonEnded = false;
     if (this.savedRun) {
       this.scene.restoreSnapshot(this.savedRun.scene);
       this.totalElapsedTime =
@@ -63,6 +65,10 @@ export class Game {
       const cycleProgress =
         (this.totalElapsedTime % TOTAL_CYCLE) / TOTAL_CYCLE;
       this._wasNight = cycleProgress >= DAY_DURATION / TOTAL_CYCLE;
+      const music = this.savedRun.game?.music;
+      if (music?.name) {
+        audio.primeResume(music.name, music.offset ?? 0);
+      }
     }
     this.initLights();
     this.initSky();
@@ -71,7 +77,6 @@ export class Game {
     this.initDayNightIcon();
     this.initMinimap();
     this.initWeather();
-    this.bloodMoonEnded = false;
     audio.onMusicEnded = (name) => {
       if (name === "musicBloodMoon") {
         this.bloodMoonEnded = true;

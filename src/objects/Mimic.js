@@ -154,11 +154,11 @@ export class Mimic extends Enemy {
     );
   }
 
-  hit(damage = 1, isCritical = false) {
+  hit(damage = 1, isCritical = false, critSoundOverride = null) {
     if (this.isDormant) {
       this.wake();
     }
-    super.hit(damage, isCritical);
+    super.hit(damage, isCritical, critSoundOverride);
   }
 
   update(delta) {

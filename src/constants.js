@@ -72,6 +72,55 @@ export const INITIAL_PLAYER_SKILLS = {
   thorns: { enabled: false, damage: 1, growthDamage: 0.4 },
   glowing: { enabled: false },
   projectGlowing: { enabled: false },
+  orbitalBlades: {
+    enabled: false,
+    count: 1,
+    damage: 0.4,
+    range: 1.6,
+    growthCount: 1,
+    growthDamage: 0.25,
+    growthRange: 0.12,
+    maxCount: 8,
+    maxRange: 2.6,
+  },
+  twinShot: { enabled: false },
+  berserker: {
+    enabled: false,
+    bonus: 0.15,
+    growthBonus: 0.08,
+    maxBonus: 0.6,
+  },
+  overcharge: {
+    enabled: false,
+    damage: 0.6,
+    range: 1.3,
+    growthDamage: 0.3,
+    growthRange: 0.15,
+    maxDamage: 3,
+    maxRange: 2.2,
+  },
+  adrenaline: {
+    enabled: false,
+    duration: 1.2,
+    speedBonus: 0.12,
+    attackSpeedBonus: 0.12,
+    growthDuration: 0.15,
+    growthSpeedBonus: 0.04,
+    growthAttackSpeedBonus: 0.04,
+    maxDuration: 3,
+    maxSpeedBonus: 0.4,
+    maxAttackSpeedBonus: 0.4,
+  },
+  secondWind: { enabled: false },
+  staticField: {
+    enabled: false,
+    chance: 0.12,
+    freezeDuration: 0.5,
+    growthChance: 0.06,
+    growthFreezeDuration: 0.15,
+    maxChance: 0.7,
+    maxFreezeDuration: 2,
+  },
 };
 
 export const PLAYER_PASSIVES = {
@@ -221,3 +270,7 @@ export const CRITICAL_FLASH_COLOR = 0xff2222;
 export const CRITICAL_PUNCH_SCALE = 0.3;
 
 export const BANNER_DURATION = 3.5;
+
+export const LOW_HEALTH_THRESHOLD = 0.4;
+export const SECOND_WIND_INVINCIBILITY_DURATION = 5;
+export const TWIN_SHOT_DAMAGE_MULTIPLIER = 1;

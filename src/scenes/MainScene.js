@@ -7,6 +7,7 @@ import { Mimic } from "../objects/Mimic.js";
 import { Item } from "../objects/Item.js";
 import { showDamageText } from "../components/DamageText.js";
 import { audio } from "../core/AudioEngine.js";
+import { spawnRingWave } from "../core/powers.js";
 import {
   DIFFICULTY_COLOR_MAX_LEVEL,
   SKULL_CRAZE_START,
@@ -40,6 +41,13 @@ import {
   BOSS_SPAWN_EVERY_LEVELS,
   POST_MAX_BOSS_CHANCE_PER_LEVEL,
 } from "../constants.js";
+
+const NON_REPEATABLE_SKILLS = new Set([
+  "glowing",
+  "projectGlowing",
+  "twinShot",
+  "secondWind",
+]);
 export class MainScene extends THREE.Scene {
   constructor() {
     super();
@@ -56,6 +64,7 @@ export class MainScene extends THREE.Scene {
     this.enemies = [];
     this.items = [];
     this.projectiles = [];
+    this.powerEffects = [];
     this.coinsEarned = 0;
     this.isNight = false;
 
@@ -195,6 +204,14 @@ export class MainScene extends THREE.Scene {
     );
   }
 
+  debugSpawnItemNearby() {
+    const spawnPosition = this._getRandomSpawnAroundPlayer(3, 6);
+    spawnPosition.y = 0.25;
+    const item = new Item(spawnPosition, 0.05, 0x800080);
+    this.add(item);
+    this.items.push(item);
+  }
+
   spawnMinions(boss) {
     for (let i = 0; i < BOSS_SUMMON_COUNT; i++) {
       const angle = (i / BOSS_SUMMON_COUNT) * Math.PI * 2 + Math.random();
@@ -315,10 +332,19 @@ export class MainScene extends THREE.Scene {
       ITEM_SPAWN_DISTANCE.min,
       ITEM_SPAWN_DISTANCE.max
     );
+    this._spawnItemAt(spawnPosition);
+  }
+
+  _spawnItemAt(position) {
+    const spawnPosition = position.clone();
     spawnPosition.y = 0.25;
     const item = new Item(spawnPosition, 0.05, 0x800080);
     this.add(item);
     this.items.push(item);
+  }
+
+  spawnBossChest(position) {
+    this._spawnItemAt(position);
   }
 
   _spawnEnemy(difficulty) {
@@ -406,6 +432,20 @@ export class MainScene extends THREE.Scene {
     }
   }
 
+  addPowerEffect(effect) {
+    this.powerEffects.push(effect);
+  }
+
+  _updatePowerEffects(delta) {
+    for (let i = this.powerEffects.length - 1; i >= 0; i--) {
+      const effect = this.powerEffects[i];
+      if (!effect.update(delta)) {
+        effect.dispose?.();
+        this.powerEffects.splice(i, 1);
+      }
+    }
+  }
+
   _updateProjectiles(delta) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const projectile = this.projectiles[i];
@@ -421,7 +461,16 @@ export class MainScene extends THREE.Scene {
 
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
+      const prevX = enemy.position.x;
+      const prevZ = enemy.position.z;
       enemy.update(delta);
+      if (delta > 0 && enemy.velocity) {
+        enemy.velocity.set(
+          (enemy.position.x - prevX) / delta,
+          0,
+          (enemy.position.z - prevZ) / delta
+        );
+      }
       if (!enemy.parent) {
         this.enemies.splice(i, 1);
         continue;
@@ -479,10 +528,16 @@ export class MainScene extends THREE.Scene {
   _showSkillChoices() {
     this.isSkillChoiceModalOpen = true;
 
-    const skills = [...Item.skillTypes].filter((skill) => {
+    const skills = Object.keys(this.player.active_skills).filter((skill) => {
       const data = this.player.active_skills[skill];
+      if (!data?.enabled) {
+        return true;
+      }
+      if (NON_REPEATABLE_SKILLS.has(skill)) {
+        return false;
+      }
       const keys = Object.keys(data || {});
-      return !(data?.enabled && keys.length === 1);
+      return keys.length > 1;
     });
     const chosen = [];
     while (chosen.length < 3 && skills.length > 0) {
@@ -571,11 +626,30 @@ export class MainScene extends THREE.Scene {
           hitDistance * hitDistance
         ) {
           const projectileDamage = projectile.damage;
-          enemy.hit(projectileDamage, projectile.isCritical);
+          const overchargeSkill = this.player.active_skills.overcharge;
+          enemy.hit(
+            projectileDamage,
+            projectile.isCritical,
+            overchargeSkill?.enabled ? "powerOvercharge" : null
+          );
           if (projectile.isCritical) {
             const hitPosition = enemy.position.clone();
             hitPosition.y += enemy.size ?? 1;
             showDamageText(Math.round(projectileDamage), hitPosition, true);
+
+            if (overchargeSkill?.enabled) {
+              const burstOrigin = enemy.position.clone();
+              spawnRingWave(this, burstOrigin, {
+                maxRadius: overchargeSkill.range,
+                duration: 0.35,
+                color: 0xffee00,
+                onWaveHit: (target) => {
+                  if (target !== enemy) {
+                    target.hit(overchargeSkill.damage);
+                  }
+                },
+              });
+            }
           }
           projectile.hitEnemies.add(enemy);
           if (this.player.lifeSteal > 0) {
@@ -746,6 +820,7 @@ export class MainScene extends THREE.Scene {
 
     this._updateProjectiles(delta);
     this._updateEnemies(delta);
+    this._updatePowerEffects(delta);
     this._updateItems(delta);
     this._resolveCollisions(delta);
     this._updateSpawns(delta, difficulty);

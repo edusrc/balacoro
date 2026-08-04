@@ -1,5 +1,5 @@
 const HISTORY_KEY = "balacoro_history";
-const MAX_RUNS = 8;
+const MAX_RUNS = 50;
 
 export function formatDuration(seconds) {
   const totalSeconds = Math.max(Math.floor(seconds), 0);

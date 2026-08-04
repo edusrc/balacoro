@@ -97,7 +97,7 @@ export default function OptionsMenu({ onBack }) {
             onChange={(event) => toggleAutoSave(event.target.checked)}
             style={{ accentColor: "#ffee00", width: "18px", height: "18px" }}
           />
-          AUTO SAVE (SAVE WHEN LEAVING A RUN)
+          AUTO SAVE
         </label>
       </div>
 
