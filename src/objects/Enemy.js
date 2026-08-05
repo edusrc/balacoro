@@ -685,7 +685,7 @@ export class Enemy extends THREE.Object3D {
     if (this.target?.onEnemyKilled) {
       this.target.onEnemyKilled();
     }
-    if (this.isBoss && this.parent?.spawnBossChest) {
+    if (this.isBoss && this.dropsChest !== false && this.parent?.spawnBossChest) {
       this.parent.spawnBossChest(this.position);
     }
   }

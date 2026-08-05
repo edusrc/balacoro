@@ -77,12 +77,22 @@ function skillStats(skillData, includeGrowth) {
         value !== undefined
     )
     .map(([key, value]) => {
-      const growthKey = `growth${key[0].toUpperCase()}${key.slice(1)}`;
-      const growth = includeGrowth ? skillData[growthKey] : null;
+      const capitalized = key[0].toUpperCase() + key.slice(1);
+      const rawGrowth = includeGrowth ? skillData[`growth${capitalized}`] : null;
+      const cap = skillData[`max${capitalized}`];
+      let growth = typeof rawGrowth === "number" ? rawGrowth : null;
+      if (
+        growth != null &&
+        typeof value === "number" &&
+        typeof cap === "number" &&
+        (growth < 0 ? value <= cap : value >= cap)
+      ) {
+        growth = null;
+      }
       return {
         label: formatLabel(key),
         value: typeof value === "number" ? +value.toFixed(1) : value,
-        growth: typeof growth === "number" ? growth : null,
+        growth,
       };
     });
 }
@@ -139,7 +149,8 @@ export default function SkillChoiceModal({
           left: 50%;
           bottom: 100%;
           transform: translate(-50%, -4px);
-          width: 250px;
+          width: 300px;
+          max-width: 90vw;
           background: #0a0a12;
           border: 2px solid var(--accent);
           border-radius: 6px;
@@ -156,7 +167,7 @@ export default function SkillChoiceModal({
           z-index: 10;
         }
         .skill-tooltip-desc {
-          max-width: 220px;
+          max-width: 260px;
           margin: 0 auto;
           white-space: normal;
         }
@@ -171,6 +182,7 @@ export default function SkillChoiceModal({
           flex-direction: column;
           gap: 6px;
           color: #aaa;
+          letter-spacing: 0;
         }
         .skill-tooltip-stats div {
           white-space: nowrap;

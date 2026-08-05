@@ -356,7 +356,11 @@ export class MainScene extends THREE.Scene {
       postMaxLevels > 0 &&
       Math.random() < postMaxLevels * POST_MAX_BOSS_CHANCE_PER_LEVEL
     ) {
-      this._spawnBoss(difficulty, { announce: false, canSummon: false });
+      this._spawnBoss(difficulty, {
+        announce: false,
+        canSummon: false,
+        dropsChest: false,
+      });
       return;
     }
 
@@ -411,6 +415,7 @@ export class MainScene extends THREE.Scene {
       true
     );
     boss.canSummon = options.canSummon ?? true;
+    boss.dropsChest = options.dropsChest ?? true;
     this.add(boss);
     this.enemies.push(boss);
 
