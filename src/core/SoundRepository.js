@@ -318,7 +318,7 @@ export const SOUND_CONFIG = {
     musicDay: {
       enabled: true,
       type: "song",
-      files: ["music-day.mp3"],
+      files: ["music-day1.mp3"],
       maxVolume: 0.55,
       loop: true,
       kind: "music",
@@ -335,8 +335,8 @@ export const SOUND_CONFIG = {
     musicNight: {
       enabled: true,
       type: "song",
-      files: ["music-night.mp3"],
-      maxVolume: 0.55,
+      files: ["music-night2.mp3"],
+      maxVolume: 0.8,
       loop: true,
       kind: "music",
       fadeInSeconds: 3,

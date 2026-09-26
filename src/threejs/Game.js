@@ -9,6 +9,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { ColorGradingShader } from "../core/ColorGradingShader.js";
 import { disposeKillEffects } from "../core/killEffects.js";
 import { disposePowerFx } from "../core/powerFx.js";
+import { DayNightBadge } from "../core/DayNightBadge.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { setFloatingTextCamera } from "../components/createFloatingText.js";
@@ -675,14 +676,7 @@ export class Game {
   }
 
   initDayNightIcon() {
-    this.icon = document.createElement("div");
-    this.icon.style.position = "absolute";
-    this.icon.style.top = "10px";
-    this.icon.style.right = "10px";
-    this.icon.style.zIndex = "20";
-    this.icon.style.fontSize = "32px";
-    this.icon.style.pointerEvents = "none";
-    this.container.appendChild(this.icon);
+    this.dayNightBadge = new DayNightBadge(this.container);
   }
 
   updateSunPosition(elapsedSeconds) {
@@ -811,22 +805,6 @@ export class Game {
     );
     this.sunSmoothProgress = smoothProgress;
 
-    const iconState = this.isNight
-      ? this.isFullMoon
-        ? "bloodmoon"
-        : "moon"
-      : "sun";
-    if (this.icon && iconState !== this._iconState) {
-      this._iconState = iconState;
-      const iconStyle = this.isNight
-        ? this.isFullMoon
-          ? "filter: sepia(1) saturate(6) hue-rotate(-45deg) brightness(1.1) drop-shadow(0 0 10px rgba(255, 60, 60, 0.9));"
-          : "filter: sepia(1) saturate(2.5) hue-rotate(175deg) brightness(1.25) drop-shadow(0 0 8px rgba(140, 180, 255, 0.8));"
-        : "filter: sepia(1) saturate(6) hue-rotate(-15deg) brightness(1.15) drop-shadow(0 0 8px rgba(255, 200, 50, 0.8));";
-      this.icon.innerHTML = `<img src="${
-        this.isNight ? "./assets/imgs/moon.png" : "./assets/imgs/sun.png"
-      }" width="32" height="32" style="${iconStyle}" />`;
-    }
   }
 
   onMouseMove = (event) => {
@@ -871,6 +849,11 @@ export class Game {
     }
 
     this.updateSunPosition(this.totalElapsedTime);
+    this.dayNightBadge?.update(Math.min(deltaMs / 1000, 0.1), {
+      isNight: this.isNight,
+      isFullMoon: this.isFullMoon,
+      dayProgress: this.sunSmoothProgress ?? 1,
+    });
     this.scene.isNight = this.isNight;
     this.updateWeather(this.scene.isPaused ? 0 : deltaMs / 1000);
     this._updatePostProcessing(
@@ -914,6 +897,7 @@ export class Game {
       window.removeEventListener("keydown", this.onMiniViewKeyDown);
     }
     this.minimap.dispose();
+    this.dayNightBadge?.dispose();
     disposeKillEffects(this.scene);
     disposePowerFx(this.scene);
     this.scene.player?.trailEmitter?.dispose();
