@@ -4,7 +4,7 @@ import { Projectile } from "./Projectile";
 import { showXPText } from "../components/XPText.js";
 import { showDamageText } from "../components/DamageText.js";
 import { loadCustomization } from "../core/customization.js";
-import { createAccessory } from "../core/cosmetics.js";
+import { createPlayerAvatar } from "../core/playerAvatar.js";
 import { TrailEmitter, getTrailDefinitions } from "../core/trails.js";
 import {
   POWER_DEFS,
@@ -12,8 +12,10 @@ import {
   performPower,
   spawnFlash,
   spawnRingWave,
+  spawnFrostNova,
 } from "../core/powers.js";
 import { audio } from "../core/AudioEngine.js";
+import { ZONE } from "../core/world/zones.js";
 
 import {
   PLAYER_INITIAL_HEALTH,
@@ -34,14 +36,23 @@ import {
   PLAYER_LIGHT_INTENSITY_NORMAL,
   PLAYER_LIGHT_DISTANCE_GLOWING,
   PLAYER_LIGHT_DISTANCE_NORMAL,
+  PLAYER_LIGHT_HEIGHT,
+  PLAYER_LIGHT_CONE_ANGLE,
   PLAYER_EMISSIVE_INTENSITY,
   PROJECTILE_SPEED_BASE,
   LOW_HEALTH_THRESHOLD,
   SECOND_WIND_INVINCIBILITY_DURATION,
   TWIN_SHOT_DAMAGE_MULTIPLIER,
+  PLAYER_WALK_ANIMATION,
 } from "../constants.js";
 
 const JOYSTICK_DEADZONE_SQ = 0.0225;
+const DASH_INVULNERABILITY_DURATION = 0.25;
+const PLAYER_COLLISION_RADIUS = 0.45;
+const ICE_SLIDE_SPEED_SQ = 0.6 * 0.6;
+const playerCollisionBox = new THREE.Box3();
+const playerCollisionCenter = new THREE.Vector3();
+const playerCollisionSize = new THREE.Vector3(1, 1, 1);
 
 export class Player extends THREE.Object3D {
   constructor(input) {
@@ -59,6 +70,11 @@ export class Player extends THREE.Object3D {
     this.dashCooldownTimer = 0;
     this.dashCharges = 0;
     this.dashKeyHeld = false;
+    this.dashInvulnerableTimer = 0;
+    this.moveVelocity = new THREE.Vector3();
+    this.lavaTimer = 0;
+    this.stepTimer = 0;
+    this.isSlidingOnIce = false;
     this.shieldCount = 0;
     this.forceFieldCooldownTimer = 0;
     this.powerCooldowns = { q: 0, e: 0 };
@@ -99,55 +115,34 @@ export class Player extends THREE.Object3D {
     const customization = loadCustomization();
     this.customColor = customization.color;
     this.projectileColor = customization.projectileColor;
+    this.shotShape = customization.shotShape ?? "box";
+    this.killEffect = customization.killEffect ?? "pixels";
+    this.dashColor = customization.dashColor ?? null;
+    this.shieldColor = customization.shieldColor ?? null;
     this.glowColor = new THREE.Color(this.customColor);
+    this.hasTakenDamage = false;
 
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshStandardMaterial({
-      color: this.customColor,
-      emissive: new THREE.Color(0x000000),
-      emissiveIntensity: 0,
-    });
+    this.avatar = createPlayerAvatar(customization);
+    this.add(this.avatar.body);
+    this.bodyMesh = this.avatar.mesh;
+    this.eyeMaterial = this.avatar.face.pupilMaterial;
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.y = 0.35;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    this.add(mesh);
-
-    const eyeGeometry = new THREE.BoxGeometry(0.18, 0.18, 0.06);
-    const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    this.eyeMaterial = eyeMaterial;
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-      eye.position.set(side * 0.2, 0.15, 0.51);
-      mesh.add(eye);
-    }
-
-    for (const accessory of (customization.accessories ?? []).map(
-      createAccessory
-    )) {
-      if (!accessory) {
-        continue;
-      }
-      accessory.position.y = 0.35;
-      accessory.traverse((child) => {
-        child.castShadow = true;
-      });
-      this.add(accessory);
-    }
-
-    this.personalLight = new THREE.PointLight(
+    this.personalLight = new THREE.SpotLight(
       this.glowColor,
       PLAYER_LIGHT_INTENSITY_NORMAL,
-      PLAYER_LIGHT_DISTANCE_NORMAL
+      PLAYER_LIGHT_DISTANCE_NORMAL,
+      PLAYER_LIGHT_CONE_ANGLE,
+      0.6,
+      2
     );
-
-    this.personalLight.position.set(0, 1.5, 0);
+    this.personalLight.position.set(0, PLAYER_LIGHT_HEIGHT, 0);
+    this.personalLight.target.position.set(0, 0, 0);
     this.add(this.personalLight);
+    this.add(this.personalLight.target);
 
     this.damageEffectTime = 0;
     this.dashFlashTime = 0;
-    this.originalColor = new THREE.Color(this.customColor);
+    this.originalColor = this.avatar.skin.baseColor.clone();
 
     this.trailDefs = getTrailDefinitions(customization.accessories);
     this.trailEmitter = null;
@@ -157,6 +152,12 @@ export class Player extends THREE.Object3D {
   }
 
   update(delta) {
+    if (this.dashInvulnerableTimer > 0) {
+      this.dashInvulnerableTimer = Math.max(
+        this.dashInvulnerableTimer - delta,
+        0
+      );
+    }
     if (this.adrenalineTimer > 0) {
       this.adrenalineTimer = Math.max(this.adrenalineTimer - delta, 0);
     }
@@ -200,25 +201,52 @@ export class Player extends THREE.Object3D {
       }
     }
 
-    if (direction.lengthSq() > 0) {
-      const step = usingJoystick ? direction.clone() : direction.clone().normalize();
-      step.multiplyScalar(this.speed * speedMultiplier * delta);
-      const newPos = this.position.clone().add(step);
-      const tileManager = this.parent?.tileManager;
+    const tileManager = this.parent?.tileManager;
+    const groundEffect = tileManager?.getGroundEffect(this.position.x, this.position.z);
+    const desiredVelocity = usingJoystick
+      ? direction.clone()
+      : direction.lengthSq() > 0
+        ? direction.clone().normalize()
+        : direction.clone();
+    desiredVelocity.multiplyScalar(
+      this.speed * speedMultiplier * (groundEffect?.speed ?? 1)
+    );
+    const response = groundEffect?.slippery ? 2.2 : 30;
+    this.moveVelocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
 
-      if (!tileManager) {
-        this.position.copy(newPos);
-      } else {
-        const playerBox = this.getCollisionBoxAt(newPos);
-        const isBlocked = tileManager.intersectsSolid(playerBox);
-        if (!isBlocked) {
-          this.position.copy(newPos);
+    if (this.moveVelocity.lengthSq() > 1e-4) {
+      const targetX = this.position.x + this.moveVelocity.x * delta;
+      const targetZ = this.position.z + this.moveVelocity.z * delta;
+      if (tileManager) {
+        const movedX = this.position.x;
+        const movedZ = this.position.z;
+        tileManager.moveCircle(this.position, targetX, targetZ, PLAYER_COLLISION_RADIUS);
+        if (delta > 0 && groundEffect?.slippery) {
+          this.moveVelocity.set(
+            (this.position.x - movedX) / delta,
+            0,
+            (this.position.z - movedZ) / delta
+          );
         }
+      } else {
+        this.position.x = targetX;
+        this.position.z = targetZ;
       }
+    }
 
-      if (usingJoystick && !usingAimJoystick) {
-        this.lastDirection.copy(direction).normalize();
+    if (direction.lengthSq() > 0 && usingJoystick && !usingAimJoystick) {
+      this.lastDirection.copy(direction).normalize();
+    }
+
+    if (groundEffect?.damage && !this.isInvincible) {
+      this.lavaTimer -= delta;
+      if (this.lavaTimer <= 0) {
+        this.lavaTimer = 0.5;
+        this.takeDamage(Math.round(groundEffect.damage * 0.5), null);
+        audio.play("lavaBurn");
       }
+    } else {
+      this.lavaTimer = 0;
     }
 
     if (usingAimJoystick) {
@@ -246,28 +274,38 @@ export class Player extends THREE.Object3D {
     if (this.damageEffectTime > 0) {
       this.damageEffectTime -= delta;
       if (this.damageEffectTime <= 0) {
-        const mesh = this.children.find((child) => child.isMesh);
-        if (mesh && mesh.material) {
-          mesh.material.color.copy(this.originalColor);
-        }
+        this.bodyMesh.material.color.copy(this.originalColor);
       }
     }
 
     if (this.dashFlashTime > 0) {
       this.dashFlashTime -= delta;
       if (this.dashFlashTime <= 0) {
-        const mesh = this.children.find((child) => child.isMesh);
-        if (mesh && mesh.material) {
-          if (this.glowing) {
-            mesh.material.emissive.copy(this.glowColor);
-            mesh.material.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
-          } else {
-            mesh.material.emissive.set(0x000000);
-            mesh.material.emissiveIntensity = 0;
-          }
+        if (this.glowing) {
+          this.bodyMesh.material.emissive.copy(this.glowColor);
+          this.bodyMesh.material.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
+        } else {
+          this.avatar.skin.restoreEmissive();
         }
       }
     }
+
+    const isMoving = direction.lengthSq() > 0;
+    this._updateTerrainAudio(delta, isMoving, tileManager);
+    const localMove = isMoving
+      ? direction
+          .clone()
+          .normalize()
+          .applyQuaternion(this.quaternion.clone().invert())
+      : null;
+    this.avatar.update(delta, {
+      moving: PLAYER_WALK_ANIMATION && isMoving,
+      localX: localMove?.x ?? 0,
+      localZ: localMove?.z ?? 0,
+      speedFactor: (this.speed * speedMultiplier) / 7,
+      animateSkin:
+        !this.glowing && this.dashFlashTime <= 0 && this.damageEffectTime <= 0,
+    });
 
     const berserkerSkill = this.active_skills.berserker;
     const berserkerActive =
@@ -293,7 +331,7 @@ export class Player extends THREE.Object3D {
           })
         );
         aura.position.y = 0.35;
-        this.add(aura);
+        this.avatar.body.add(aura);
         this.adrenalineAura = aura;
       }
       this.adrenalineAura.scale.setScalar(
@@ -302,7 +340,7 @@ export class Player extends THREE.Object3D {
       this.adrenalineAura.material.opacity =
         0.3 + Math.sin(this.auraPulseTime * 10) * 0.1;
     } else if (this.adrenalineAura) {
-      this.remove(this.adrenalineAura);
+      this.avatar.body.remove(this.adrenalineAura);
       this.adrenalineAura.geometry.dispose();
       this.adrenalineAura.material.dispose();
       this.adrenalineAura = null;
@@ -340,9 +378,12 @@ export class Player extends THREE.Object3D {
         this.add(this.freezeRing);
       } else {
         const radius = freezeSkill.range ?? 1;
-        const newGeometry = new THREE.RingGeometry(radius - 0.05, radius, 64);
-        this.freezeRing.geometry.dispose();
-        this.freezeRing.geometry = newGeometry;
+        if (this.freezeRing.userData.radius !== radius) {
+          this.freezeRing.userData.radius = radius;
+          const newGeometry = new THREE.RingGeometry(radius - 0.05, radius, 64);
+          this.freezeRing.geometry.dispose();
+          this.freezeRing.geometry = newGeometry;
+        }
       }
     }
 
@@ -405,6 +446,39 @@ export class Player extends THREE.Object3D {
         this.updateForceFieldVisual();
       }
     }
+  }
+
+  _updateTerrainAudio(delta, isMoving, tileManager) {
+    const zone = tileManager
+      ? tileManager.getZoneAt(this.position.x, this.position.z)
+      : ZONE.NONE;
+    const stepSound =
+      zone === ZONE.MUD
+        ? "mudStep"
+        : zone === ZONE.WATER
+          ? "waterStep"
+          : zone === ZONE.TALL_GRASS
+            ? "grassRustle"
+            : null;
+    if (isMoving && stepSound) {
+      this.stepTimer -= delta;
+      if (this.stepTimer <= 0) {
+        const speed = Math.max(this.moveVelocity.length(), 1);
+        this.stepTimer = Math.max(0.22, (0.34 * 7) / speed);
+        audio.play(stepSound);
+      }
+    } else {
+      this.stepTimer = 0;
+    }
+
+    const sliding =
+      zone === ZONE.ICE && this.moveVelocity.lengthSq() > ICE_SLIDE_SPEED_SQ;
+    if (sliding && !this.isSlidingOnIce) {
+      audio.startLoop("iceSlide");
+    } else if (!sliding && this.isSlidingOnIce) {
+      audio.stopLoop("iceSlide");
+    }
+    this.isSlidingOnIce = sliding;
   }
 
   _updatePowerSlot(slot, keyCode, delta) {
@@ -573,6 +647,7 @@ export class Player extends THREE.Object3D {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.01;
     ring.name = "freezeRing";
+    ring.userData.radius = radius;
 
     return ring;
   }
@@ -608,6 +683,7 @@ export class Player extends THREE.Object3D {
     }
 
     audio.play("skillFreezeExplosion");
+    spawnFrostNova(parent, this.position.clone(), radius);
 
     for (const enemy of parent.enemies) {
       const distance = enemy.position.distanceTo(this.position);
@@ -626,110 +702,101 @@ export class Player extends THREE.Object3D {
     }
 
     audio.play("playerDash");
+    const dashStart = this.position.clone();
 
-    const newPos = this.position
-      .clone()
-      .add(direction.multiplyScalar(dashDistance));
     const tileManager = this.parent?.tileManager;
-
-    if (!tileManager) {
-      this.position.copy(newPos);
-    } else {
-      const playerBox = this.getCollisionBoxAt(newPos);
-      const isBlocked = tileManager.intersectsSolid(playerBox);
-      if (!isBlocked) {
-        this.position.copy(newPos);
+    const stepCount = 10;
+    const candidate = new THREE.Vector3();
+    for (let stepIndex = stepCount; stepIndex > 0; stepIndex--) {
+      candidate
+        .copy(this.position)
+        .addScaledVector(direction, (dashDistance * stepIndex) / stepCount);
+      if (
+        !tileManager ||
+        !tileManager.intersectsSolid(this.getCollisionBoxAt(candidate))
+      ) {
+        this.position.copy(candidate);
+        break;
       }
     }
+    tileManager?.pushOutCircle(this.position, PLAYER_COLLISION_RADIUS);
+    this.dashInvulnerableTimer = DASH_INVULNERABILITY_DURATION;
 
-    const mesh = this.children.find((child) => child.isMesh);
-    if (mesh && mesh.material) {
-      mesh.material.emissive = new THREE.Color(0xffffff);
-      mesh.material.emissiveIntensity = 2;
-      this.dashFlashTime = 0.1;
-    }
-
-    this.createDashGhost();
+    this.bodyMesh.material.emissive.set(this.dashColor ?? 0xffffff);
+    this.bodyMesh.material.emissiveIntensity = 2;
+    this.dashFlashTime = 0.1;
+    this.avatar.impulse(0.3);
+    this.createDashGhosts(dashStart, this.position);
+    this.trailEmitter?.burst(dashStart, this.position);
   }
 
-  createDashGhost() {
-    const mesh = this.children.find((child) => child.isMesh);
-    if (!mesh) {
+  createDashGhosts(from, to) {
+    if (!this.parent) {
       return;
     }
-
-    const ghost = new THREE.Mesh(
-      mesh.geometry.clone(),
-      new THREE.MeshStandardMaterial({
-        color: this.customColor,
+    const parent = this.parent;
+    const ghostCount = 3;
+    for (let index = 0; index < ghostCount; index++) {
+      const material = new THREE.MeshBasicMaterial({
+        color: this.dashColor ?? this.customColor,
         transparent: true,
-        opacity: 0.5,
+        opacity: 0.25 + 0.2 * (index / ghostCount),
         depthWrite: false,
-      })
-    );
+      });
+      const ghost = new THREE.Mesh(this.bodyMesh.geometry, material);
+      ghost.position.lerpVectors(from, to, index / ghostCount);
+      ghost.position.y += 0.35;
+      ghost.quaternion.copy(this.quaternion);
+      parent.add(ghost);
 
-    ghost.position.copy(this.position);
-    ghost.position.y += 0.35;
-    ghost.quaternion.copy(this.quaternion);
-    ghost.scale.copy(this.scale);
-    ghost.castShadow = false;
-    ghost.receiveShadow = false;
-
-    if (this.parent) {
-      this.parent.add(ghost);
-
-      const fadeDuration = 300;
-      const fadeSteps = 5;
-      const stepTime = fadeDuration / fadeSteps;
-
+      const fadeSteps = 6;
+      const startOpacity = material.opacity;
       let currentStep = 0;
       const fade = () => {
         currentStep += 1;
-        ghost.material.opacity -= 1 / fadeSteps;
-
+        material.opacity = startOpacity * (1 - currentStep / fadeSteps);
+        ghost.scale.setScalar(1 + currentStep * 0.04);
         if (currentStep >= fadeSteps) {
-          if (ghost.parent) {
-            ghost.parent.remove(ghost);
-          }
+          parent.remove(ghost);
+          material.dispose();
         } else {
-          setTimeout(fade, stepTime);
+          setTimeout(fade, 50);
         }
       };
-
-      setTimeout(fade, stepTime);
+      setTimeout(fade, 50);
     }
   }
-  createForceFieldVisual() {
-    const mesh = this.children.find((child) => child.isMesh);
-    if (!mesh) {
-      return;
-    }
 
+  createForceFieldVisual() {
     const outlineMaterial = new THREE.MeshBasicMaterial({
-      color: this.customColor,
+      color: this.shieldColor ?? this.customColor,
       side: THREE.BackSide,
       transparent: true,
       opacity: 0.6,
       depthWrite: false,
     });
 
-    const outline = new THREE.Mesh(mesh.geometry.clone(), outlineMaterial);
+    const outline = new THREE.Mesh(this.bodyMesh.geometry, outlineMaterial);
     outline.name = "forceField";
     outline.position.y = 0.35;
     outline.scale.multiplyScalar(1.3);
-    this.add(outline);
+    this.avatar.body.add(outline);
   }
 
   updateForceFieldVisual() {
-    const outline = this.children.find(
-      (child) => child.name === "forceField"
-    );
+    const outline = this.getObjectByName("forceField");
     if (!outline || !outline.material) {
       return;
     }
 
     const intensity = Math.min(this.shieldCount / 10, 1);
-    outline.material.color.setRGB(intensity, intensity, 0);
+    if (this.shieldColor != null) {
+      outline.material.color
+        .set(this.shieldColor)
+        .multiplyScalar(0.45 + 0.55 * intensity);
+    } else {
+      outline.material.color.setRGB(intensity, intensity, 0);
+    }
     outline.material.opacity = 0.3 + 0.3 * intensity;
   }
 
@@ -757,7 +824,8 @@ export class Player extends THREE.Object3D {
       this.projectGlowing,
       this.sharpening,
       this.projectileColor,
-      isCritical
+      isCritical,
+      this.shotShape
     );
     if (this.parent) {
       this.parent.add(projectile);
@@ -779,7 +847,8 @@ export class Player extends THREE.Object3D {
         this.projectGlowing,
         this.sharpening,
         this.projectileColor,
-        isCritical
+        isCritical,
+        this.shotShape
       );
       this.parent.add(secondProjectile);
       this.parent.projectiles?.push(secondProjectile);
@@ -834,7 +903,7 @@ export class Player extends THREE.Object3D {
 
       if (skillName === "glowing") {
         this.glowing = true;
-        const mesh = this.children.find((child) => child.isMesh);
+        const mesh = this.bodyMesh;
         if (mesh && mesh.material) {
           mesh.material.emissive = this.glowColor.clone();
           mesh.material.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
@@ -932,6 +1001,7 @@ export class Player extends THREE.Object3D {
       slotPowers: { ...this.slotPowers },
       powerCooldowns: { ...this.powerCooldowns },
       secondWindUsed: this.secondWindUsed,
+      hasTakenDamage: this.hasTakenDamage,
       active_skills: JSON.parse(JSON.stringify(this.active_skills)),
     };
   }
@@ -981,9 +1051,10 @@ export class Player extends THREE.Object3D {
     this.projectGlowing = state.projectGlowing === true;
     this.glowing = state.glowing === true;
     this.secondWindUsed = state.secondWindUsed === true;
+    this.hasTakenDamage = state.hasTakenDamage !== false;
 
     if (this.glowing) {
-      const mesh = this.children.find((child) => child.isMesh);
+      const mesh = this.bodyMesh;
       if (mesh && mesh.material) {
         mesh.material.emissive = this.glowColor.clone();
         mesh.material.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
@@ -1054,7 +1125,7 @@ export class Player extends THREE.Object3D {
       }
     }
 
-    if (this.isInvincible) {
+    if (this.isInvincible || this.dashInvulnerableTimer > 0) {
       return false;
     }
 
@@ -1093,22 +1164,26 @@ export class Player extends THREE.Object3D {
       const revivePosition = new THREE.Vector3();
       this.getWorldPosition(revivePosition);
       showDamageText(amount, revivePosition);
-      const reviveMesh = this.children.find((child) => child.isMesh);
+      const reviveMesh = this.bodyMesh;
       if (reviveMesh && reviveMesh.material) {
         reviveMesh.material.color.set(0xff0000);
         this.damageEffectTime = 0.2;
       }
+      this.hasTakenDamage = true;
+      this.avatar.impulse(-0.3);
       return true;
     }
 
     this.health -= amount;
+    this.hasTakenDamage = true;
+    this.avatar.impulse(-0.25);
     audio.play("playerHurt");
 
     const worldPosition = new THREE.Vector3();
     this.getWorldPosition(worldPosition);
     showDamageText(amount, worldPosition);
 
-    const mesh = this.children.find((child) => child.isMesh);
+    const mesh = this.bodyMesh;
     if (mesh && mesh.material) {
       mesh.material.color.set(0xff0000);
       this.damageEffectTime = 0.2;
@@ -1133,11 +1208,9 @@ export class Player extends THREE.Object3D {
   }
 
   getCollisionBoxAt(pos) {
-    const box = new THREE.Box3();
-    box.setFromCenterAndSize(
-      new THREE.Vector3(pos.x, pos.y + 0.5, pos.z),
-      new THREE.Vector3(1, 1, 1)
+    return playerCollisionBox.setFromCenterAndSize(
+      playerCollisionCenter.set(pos.x, pos.y + 0.5, pos.z),
+      playerCollisionSize
     );
-    return box;
   }
 }

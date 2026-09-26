@@ -70,11 +70,7 @@ export default function MainMenu({
     >
       <style>{MENU_CSS}</style>
 
-      <MenuStage
-        color={customization.color}
-        accessories={customization.accessories}
-        projectileColor={customization.projectileColor}
-      />
+      <MenuStage customization={customization} />
 
       <div
         style={{

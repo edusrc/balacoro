@@ -4,11 +4,15 @@ import { MENU_CSS } from "./MenuStage.jsx";
 import {
   generateGenome,
   buildMonsterBody,
+  animateMonsterParts,
   getBodyMaterial,
   eyeDayMaterial,
   eyeNightMaterial,
   ARCHETYPE_NAMES,
   DIFFICULTY_COLOR_MAX_LEVEL,
+  MOUTH_TYPES,
+  EYE_STYLES,
+  PATTERN_TYPES,
 } from "../objects/MonsterGenome.js";
 import {
   buildMimicBody,
@@ -58,6 +62,132 @@ const MONSTER_TYPES = [
 ];
 
 const BEAM_HEIGHT = 4.6;
+
+function disposeMonster(monster) {
+  monster.coreGeometry.dispose();
+  for (const geometry of monster.ownedGeometries ?? []) {
+    geometry.dispose();
+  }
+  monster.material.dispose();
+  if (monster.eliteAura) {
+    monster.eliteAura.material.dispose();
+  }
+}
+
+const IDLE_RESUME_SECONDS = 4;
+
+function createDragRotator(canvas, camera, getTarget) {
+  const raycaster = new THREE.Raycaster();
+  const pointerNdc = new THREE.Vector2();
+  const rotation = { x: 0, y: 0 };
+  const state = {
+    active: false,
+    lastX: 0,
+    lastY: 0,
+    targetY: 0,
+    targetX: 0,
+    velocityY: 0,
+    velocityX: 0,
+    idleTime: IDLE_RESUME_SECONDS,
+  };
+
+  const isPointerOnTarget = (event) => {
+    const target = getTarget();
+    if (!target) {
+      return false;
+    }
+    const rect = canvas.getBoundingClientRect();
+    pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointerNdc, camera);
+    return raycaster.intersectObject(target, true).length > 0;
+  };
+
+  const onPointerDown = (event) => {
+    if (!isPointerOnTarget(event)) {
+      return;
+    }
+    state.active = true;
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    state.targetY = rotation.y;
+    state.targetX = rotation.x;
+    state.velocityY = 0;
+    state.velocityX = 0;
+    state.idleTime = 0;
+    canvas.style.cursor = "grabbing";
+  };
+
+  const onPointerMove = (event) => {
+    if (state.active) {
+      state.targetY += (event.clientX - state.lastX) * 0.011;
+      state.targetX += (event.clientY - state.lastY) * 0.011;
+      state.targetX = Math.max(Math.min(state.targetX, 1.2), -1.2);
+      state.lastX = event.clientX;
+      state.lastY = event.clientY;
+      state.idleTime = 0;
+      return;
+    }
+    canvas.style.cursor = isPointerOnTarget(event) ? "grab" : "default";
+  };
+
+  const onPointerUp = () => {
+    if (!state.active) {
+      return;
+    }
+    state.active = false;
+    state.idleTime = 0;
+    canvas.style.cursor = "default";
+  };
+
+  canvas.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+
+  const update = (delta, idle) => {
+    if (state.active) {
+      const pull = Math.min(delta * 5, 1);
+      const previousY = rotation.y;
+      const previousX = rotation.x;
+      rotation.y += (state.targetY - rotation.y) * pull;
+      rotation.x += (state.targetX - rotation.x) * pull;
+      if (delta > 0) {
+        state.velocityY = (rotation.y - previousY) / delta;
+        state.velocityX = (rotation.x - previousX) / delta;
+      }
+      return;
+    }
+    state.idleTime += delta;
+    const friction = Math.exp(-delta * 2.2);
+    state.velocityY *= friction;
+    state.velocityX *= friction;
+    if (Math.abs(state.velocityY) > 0.01) {
+      rotation.y += state.velocityY * delta;
+    }
+    if (Math.abs(state.velocityX) > 0.01) {
+      rotation.x = Math.max(
+        Math.min(rotation.x + state.velocityX * delta, 1.2),
+        -1.2
+      );
+    }
+    if (state.idleTime >= IDLE_RESUME_SECONDS) {
+      idle(rotation, delta);
+    }
+  };
+
+  const dispose = () => {
+    canvas.removeEventListener("pointerdown", onPointerDown);
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+  };
+
+  return { rotation, update, dispose };
+}
+
+function nextOption(options, current) {
+  const index = options.indexOf(current);
+  return options[(index + 1) % options.length];
+}
 
 function useStageBase() {
   const canvasRef = useRef(null);
@@ -116,6 +246,18 @@ function useStageBase() {
     const ambient = new THREE.AmbientLight(0xffffff, 0.1);
     scene.add(ambient);
 
+    const rim = new THREE.DirectionalLight(0x6aa8ff, 1.6);
+    rim.position.set(STAGE_X - 2.5, 3, -4);
+    rim.target.position.set(STAGE_X, 0.8, 0);
+    scene.add(rim);
+    scene.add(rim.target);
+
+    const fill = new THREE.DirectionalLight(0xff9a6a, 0.35);
+    fill.position.set(STAGE_X + 4, 1.5, 3);
+    fill.target.position.set(STAGE_X, 0.8, 0);
+    scene.add(fill);
+    scene.add(fill.target);
+
     const beam = new THREE.Mesh(
       new THREE.ConeGeometry(2, BEAM_HEIGHT, 32, 1, true),
       new THREE.MeshBasicMaterial({
@@ -162,6 +304,12 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
       return undefined;
     }
 
+    const rotator = createDragRotator(
+      renderer.domElement,
+      camera,
+      () => monsterRef.current?.group
+    );
+
     const clock = new THREE.Clock();
     let animationFrameId;
     const animate = () => {
@@ -171,18 +319,12 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
 
       const monster = monsterRef.current;
       if (monster) {
-        monster.group.rotation.y += delta * 0.6;
-        for (const part of monster.animatedParts) {
-          const swing = Math.sin(elapsedTime * 7 + part.phase);
-          if (part.kind === "leg") {
-            part.mesh.rotation.x = swing * 0.6;
-          } else if (part.kind === "tail") {
-            part.mesh.position.x = swing * part.amplitude;
-            part.mesh.rotation.y = swing * 0.35;
-          } else if (part.kind === "antenna") {
-            part.mesh.rotation.z = part.baseRotZ + swing * 0.18;
-          }
-        }
+        rotator.update(delta, (rotation, idleDelta) => {
+          rotation.y += idleDelta * 0.6;
+          rotation.x += (0 - rotation.x) * Math.min(idleDelta * 2, 1);
+        });
+        monster.group.rotation.set(rotator.rotation.x, rotator.rotation.y, 0);
+        animateMonsterParts(monster.animatedParts, elapsedTime, 7);
         if (monster.eliteAura) {
           eliteStateRef.current.hue = (eliteStateRef.current.hue + delta * 0.35) % 1;
           monster.material.color.setHSL(eliteStateRef.current.hue, 1, 0.55);
@@ -199,7 +341,10 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
     };
     animate();
 
-    return () => cancelAnimationFrame(animationFrameId);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      rotator.dispose();
+    };
   }, [sceneRef, rendererRef, cameraRef]);
 
   useEffect(() => {
@@ -209,10 +354,10 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
     }
     if (previewScale > 1) {
       camera.position.set(0, 5.5, 16);
-      camera.lookAt(1.1, 2.6, 0);
+      camera.lookAt(1.1, 2.2, 0);
     } else {
-      camera.position.set(0, 2.6, 7);
-      camera.lookAt(1.1, 1, 0);
+      camera.position.set(0, 2.4, 7);
+      camera.lookAt(1.1, 0.75, 0);
     }
   }, [previewScale, cameraRef]);
 
@@ -224,11 +369,7 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
 
     if (monsterRef.current) {
       scene.remove(monsterRef.current.group);
-      monsterRef.current.coreGeometry.dispose();
-      monsterRef.current.material.dispose();
-      if (monsterRef.current.eliteAura) {
-        monsterRef.current.eliteAura.material.dispose();
-      }
+      disposeMonster(monsterRef.current);
     }
 
     const material = getBodyMaterial(difficulty, elite).clone();
@@ -246,7 +387,7 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
     }
 
     const scale = genome.sizeMult * previewScale;
-    const centerY = 0.4 + scale * 0.5;
+    const centerY = 0.46 * genome.stretch.y * scale;
     body.group.scale.set(
       genome.stretch.x * scale,
       genome.stretch.y * scale,
@@ -274,11 +415,7 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
       const scene = sceneRef.current;
       if (scene && monsterRef.current) {
         scene.remove(monsterRef.current.group);
-        monsterRef.current.coreGeometry.dispose();
-        monsterRef.current.material.dispose();
-        if (monsterRef.current.eliteAura) {
-          monsterRef.current.eliteAura.material.dispose();
-        }
+        disposeMonster(monsterRef.current);
       }
     },
     [sceneRef]
@@ -293,6 +430,7 @@ function MonsterStage({ genome, difficulty, elite, redEyes, previewScale }) {
         width: "100%",
         height: "100%",
         imageRendering: "pixelated",
+        touchAction: "none",
       }}
     />
   );
@@ -310,6 +448,12 @@ function MimicStage({ difficulty, awake }) {
       return undefined;
     }
 
+    const rotator = createDragRotator(
+      renderer.domElement,
+      camera,
+      () => mimicRef.current?.group
+    );
+
     const clock = new THREE.Clock();
     let animationFrameId;
     const animate = () => {
@@ -319,11 +463,22 @@ function MimicStage({ difficulty, awake }) {
 
       const mimic = mimicRef.current;
       if (mimic) {
+        rotator.update(delta, (rotation, idleDelta) => {
+          if (mimic.awake) {
+            const turn = Math.PI * 2;
+            const sway =
+              Math.round(rotation.y / turn) * turn +
+              Math.sin(elapsedTime * 0.5) * 0.3;
+            rotation.y += (sway - rotation.y) * Math.min(idleDelta * 2, 1);
+          } else {
+            rotation.y += idleDelta;
+          }
+          rotation.x += (0 - rotation.x) * Math.min(idleDelta * 2, 1);
+        });
+        mimic.group.rotation.set(rotator.rotation.x, rotator.rotation.y, 0);
         if (!mimic.awake) {
-          mimic.group.rotation.y += delta;
           mimic.group.position.y = 0.4 + Math.sin(elapsedTime * 2) * 0.08;
         } else {
-          mimic.group.rotation.y = Math.sin(elapsedTime * 0.5) * 0.3;
           mimic.group.position.y = 0.4;
           mimic.lidPivot.rotation.x = -(
             0.35 + Math.abs(Math.sin(elapsedTime * 6)) * 0.55
@@ -336,7 +491,10 @@ function MimicStage({ difficulty, awake }) {
     };
     animate();
 
-    return () => cancelAnimationFrame(animationFrameId);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      rotator.dispose();
+    };
   }, [sceneRef, rendererRef, cameraRef]);
 
   useEffect(() => {
@@ -565,6 +723,7 @@ export default function MonsterLabMenu({ onBack }) {
         <div
           style={{
             pointerEvents: "auto",
+            alignSelf: "flex-start",
             display: "grid",
             gridTemplateColumns: "repeat(2, minmax(150px, 220px))",
             columnGap: "22px",
@@ -846,6 +1005,50 @@ export default function MonsterLabMenu({ onBack }) {
                 >
                   ANTENNAE
                 </button>
+                {[
+                  ["arms", "ARMS"],
+                  ["wings", "WINGS"],
+                  ["brows", "ANGRY BROWS"],
+                ].map(([part, label]) => (
+                  <button
+                    key={part}
+                    className={`menu-button${
+                      genome.parts[part] ? " selected" : ""
+                    }`}
+                    style={{ fontSize: "11px" }}
+                    onClick={() => patchParts({ [part]: !genome.parts[part] })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  display: "flex",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                }}
+              >
+                {[
+                  ["mouth", "MOUTH", MOUTH_TYPES],
+                  ["eyeStyle", "EYES", EYE_STYLES],
+                  ["pattern", "SKIN", PATTERN_TYPES],
+                ].map(([part, label, options]) => (
+                  <button
+                    key={part}
+                    className="menu-button"
+                    style={{ fontSize: "11px" }}
+                    onClick={() =>
+                      patchParts({
+                        [part]: nextOption(options, genome.parts[part] ?? options[0]),
+                      })
+                    }
+                  >
+                    {label}: {(genome.parts[part] ?? options[0]).toUpperCase()}
+                  </button>
+                ))}
               </div>
 
               <div

@@ -60,6 +60,14 @@ export const ACCESSORY_CATEGORIES = [
   },
 ];
 
+function wobblePivot(x, y, z, rotationZ, wobble) {
+  const pivot = new THREE.Group();
+  pivot.position.set(x, y, z);
+  pivot.rotation.z = rotationZ;
+  pivot.userData.wobble = wobble;
+  return pivot;
+}
+
 export function createAccessory(id) {
   return createHat(id) ?? createGlasses(id) ?? createEars(id);
 }
@@ -71,19 +79,24 @@ export function createEars(type) {
       const furMaterial = new THREE.MeshStandardMaterial({ color: 0x2b2b2b });
       const innerMaterial = new THREE.MeshStandardMaterial({ color: 0xe08a9b });
       for (const side of [-1, 1]) {
+        const pivot = wobblePivot(side * 0.3, 0.49, 0, -side * 0.25, {
+          side,
+          strength: 0.35,
+          stiffness: 90,
+          damping: 9,
+        });
         const ear = new THREE.Mesh(
           new THREE.ConeGeometry(0.14, 0.28, 4),
           furMaterial
         );
-        ear.position.set(side * 0.3, 0.62, 0);
-        ear.rotation.z = -side * 0.25;
+        ear.position.y = 0.13;
         const inner = new THREE.Mesh(
           new THREE.ConeGeometry(0.07, 0.16, 4),
           innerMaterial
         );
-        inner.position.set(side * 0.29, 0.6, 0.05);
-        inner.rotation.z = -side * 0.25;
-        group.add(ear, inner);
+        inner.position.set(-side * 0.01, 0.1, 0.05);
+        pivot.add(ear, inner);
+        group.add(pivot);
       }
       return group;
     }
@@ -92,19 +105,24 @@ export function createEars(type) {
       const furMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5f5 });
       const innerMaterial = new THREE.MeshStandardMaterial({ color: 0xe08a9b });
       for (const side of [-1, 1]) {
+        const pivot = wobblePivot(side * 0.22, 0.58, 0, -side * 0.15, {
+          side,
+          strength: 1,
+          stiffness: 45,
+          damping: 4.5,
+        });
         const ear = new THREE.Mesh(
           new THREE.BoxGeometry(0.14, 0.55, 0.08),
           furMaterial
         );
-        ear.position.set(side * 0.22, 0.85, 0);
-        ear.rotation.z = -side * 0.15;
+        ear.position.y = 0.27;
         const inner = new THREE.Mesh(
           new THREE.BoxGeometry(0.07, 0.4, 0.02),
           innerMaterial
         );
-        inner.position.set(side * 0.21, 0.85, 0.05);
-        inner.rotation.z = -side * 0.15;
-        group.add(ear, inner);
+        inner.position.set(-side * 0.01, 0.27, 0.05);
+        pivot.add(ear, inner);
+        group.add(pivot);
       }
       return group;
     }
@@ -131,13 +149,19 @@ export function createEars(type) {
         color: 0xf0c8a0,
       });
       for (const side of [-1, 1]) {
+        const pivot = wobblePivot(side * 0.405, 0.31, 0, -side * 1.15, {
+          side,
+          strength: 0.45,
+          stiffness: 70,
+          damping: 7,
+        });
         const ear = new THREE.Mesh(
           new THREE.ConeGeometry(0.09, 0.34, 4),
           skinMaterial
         );
-        ear.position.set(side * 0.56, 0.38, 0);
-        ear.rotation.z = -side * 1.15;
-        group.add(ear);
+        ear.position.y = 0.17;
+        pivot.add(ear);
+        group.add(pivot);
       }
       return group;
     }
@@ -264,17 +288,24 @@ export function createHat(type) {
     case "wizard": {
       const group = new THREE.Group();
       const material = new THREE.MeshStandardMaterial({ color: 0x5b2a86 });
+      const pivot = wobblePivot(0, 0.52, 0, 0, {
+        side: 0,
+        strength: 0.7,
+        stiffness: 38,
+        damping: 4,
+      });
       const cone = new THREE.Mesh(
         new THREE.ConeGeometry(0.32, 0.7, 10),
         material
       );
-      cone.position.y = 0.87;
+      cone.position.y = 0.35;
+      pivot.add(cone);
       const brim = new THREE.Mesh(
         new THREE.CylinderGeometry(0.45, 0.45, 0.04, 12),
         material
       );
       brim.position.y = 0.52;
-      group.add(cone, brim);
+      group.add(pivot, brim);
       return group;
     }
     default:

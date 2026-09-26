@@ -1,22 +1,38 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import MenuStage, { MENU_CSS } from "./MenuStage.jsx";
 import CoinIcon from "./CoinIcon.jsx";
 import {
   loadCustomization,
   saveCustomization,
 } from "../core/customization.js";
-import { PLAYER_COLORS, ACCESSORY_CATEGORIES } from "../core/cosmetics.js";
+import { PLAYER_COLORS } from "../core/cosmetics.js";
+import { getCoins, spendCoins, unlockCosmetic } from "../core/wallet.js";
 import {
-  getCoins,
-  spendCoins,
-  isOwned,
-  unlockCosmetic,
-} from "../core/wallet.js";
+  SHOP_TABS,
+  SETS,
+  RARITIES,
+  CONFIRM_PRICE_THRESHOLD,
+  SET_DISCOUNT,
+  getSetItems,
+  getSetPrice,
+  getSetRarity,
+  getItemLock,
+  getRarityColor,
+  isItemOwned,
+  isItemEquipped,
+  isToggleItem,
+  equipItem,
+  unequipItem,
+} from "../core/shopCatalog.js";
+import {
+  requestItemThumbnail,
+  requestSetThumbnail,
+} from "../core/thumbnails.js";
 import { audio } from "../core/AudioEngine.js";
 
 const CUSTOMIZE_CSS = `
   .cosmetic-scroll {
-    max-height: 220px;
+    max-height: min(300px, 40vh);
     overflow-y: auto;
     overflow-x: hidden;
     padding: 6px 8px 6px 6px;
@@ -39,6 +55,115 @@ const CUSTOMIZE_CSS = `
     border-radius: 4px;
     box-shadow: 0 0 6px rgba(255, 238, 0, 0.6);
   }
+  .shop-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-bottom: 16px;
+  }
+  .shop-tabs .tab-button {
+    font-size: 11px;
+    padding: 6px 1px;
+  }
+  .shop-section-label {
+    font-size: 9px;
+    color: #777;
+    letter-spacing: 2px;
+    margin: 8px 0 2px;
+  }
+  .shop-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    padding: 5px 8px 5px 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid transparent;
+    border-left: 4px solid var(--rarity);
+    border-radius: 6px;
+    color: #ddd;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s ease, transform 0.12s ease;
+  }
+  .shop-row:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateX(4px);
+  }
+  .shop-row.equipped {
+    border-color: rgba(255, 238, 0, 0.55);
+    border-left-color: var(--rarity);
+    background: rgba(255, 238, 0, 0.07);
+  }
+  .shop-row.previewed {
+    box-shadow: 0 0 0 2px #00e5ff, 0 0 12px rgba(0, 229, 255, 0.45);
+  }
+  .shop-thumb {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 5px;
+    background: radial-gradient(circle at 50% 40%, #2a2a3a, #101018);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .shop-thumb img {
+    width: 100%;
+    height: 100%;
+  }
+  .shop-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .shop-row-rarity {
+    font-size: 7px;
+    opacity: 0.75;
+  }
+  .shop-row-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .color-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: 360px;
+  }
+  .color-row .swatch {
+    width: 24px;
+    height: 24px;
+    border-width: 2px;
+  }
+  .swatch.custom {
+    position: relative;
+    background: conic-gradient(#ff3b3b, #ffd23e, #5bff6b, #3bd8ff, #7b5bff, #ff3bd2, #ff3b3b);
+    overflow: hidden;
+  }
+  .swatch.custom input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .swatch.auto {
+    background: repeating-linear-gradient(45deg, #333 0 4px, #555 4px 8px);
+    color: #fff;
+    font-family: inherit;
+    font-size: 8px;
+  }
   .buy-button {
     background: rgba(255, 238, 0, 0.14);
     border: 2px solid #ffee00;
@@ -47,7 +172,7 @@ const CUSTOMIZE_CSS = `
     font-family: inherit;
     font-size: 12px;
     letter-spacing: 2px;
-    padding: 12px 26px;
+    padding: 12px 22px;
     cursor: pointer;
     transition: background 0.15s ease, box-shadow 0.15s ease;
   }
@@ -56,191 +181,309 @@ const CUSTOMIZE_CSS = `
     box-shadow: 0 0 16px rgba(255, 238, 0, 0.55);
   }
   .buy-button:disabled {
-    border-color: #555;
-    color: #555;
+    border-color: #663333;
+    color: #ff7777;
     cursor: default;
+    background: rgba(255, 60, 60, 0.08);
+    font-size: 9px;
+  }
+  .buy-button.secondary {
+    border-color: #666;
+    color: #aaa;
     background: transparent;
+  }
+  .progress-track {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ffb31a, #ffe27a);
   }
 `;
 
-const TABS = [
-  { id: "color", label: "COLOR" },
-  ...ACCESSORY_CATEGORIES.map(({ id, label }) => ({ id, label })),
-];
+const PANEL_STYLE = {
+  position: "absolute",
+  bottom: "6%",
+  right: "4%",
+  zIndex: 60,
+  width: "min(340px, 44vw)",
+  boxSizing: "border-box",
+  padding: "14px 18px",
+  background: "rgba(8, 8, 14, 0.92)",
+  border: "2px solid #ffee00",
+  borderRadius: "8px",
+  boxShadow: "0 0 20px rgba(255, 238, 0, 0.35)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "12px",
+  fontFamily: '"Press Start 2P", monospace',
+};
 
 function formatPrice(price) {
   return price.toLocaleString("en-US");
+}
+
+function toHex(color) {
+  return `#${(color ?? 0).toString(16).padStart(6, "0")}`;
+}
+
+function Thumb({ entry, set, color, projectileColor }) {
+  const [url, setUrl] = useState(null);
+
+  useEffect(() => {
+    const look = { color, projectileColor };
+    return set
+      ? requestSetThumbnail(set, look, setUrl)
+      : requestItemThumbnail(entry, look, setUrl);
+  }, [entry, set, color, projectileColor]);
+
+  return (
+    <div className="shop-thumb">{url && <img src={url} alt="" draggable={false} />}</div>
+  );
+}
+
+function ColorRow({ label, value, onChange, allowAuto = false }) {
+  const isCustom = value != null && !PLAYER_COLORS.includes(value);
+  return (
+    <div style={{ marginBottom: "12px" }}>
+      <div className="shop-section-label">{label}</div>
+      <div className="color-row">
+        {allowAuto && (
+          <button
+            className={`swatch auto${value == null ? " selected" : ""}`}
+            title="AUTO"
+            onClick={() => {
+              audio.play("uiClick");
+              onChange(null);
+            }}
+          >
+            A
+          </button>
+        )}
+        {PLAYER_COLORS.map((color) => (
+          <button
+            key={color}
+            className={`swatch${value === color ? " selected" : ""}`}
+            style={{ background: toHex(color) }}
+            onMouseEnter={() => audio.play("uiHover")}
+            onClick={() => {
+              audio.play("uiClick");
+              onChange(color);
+            }}
+          />
+        ))}
+        <label
+          className={`swatch custom${isCustom ? " selected" : ""}`}
+          title="CUSTOM COLOR"
+          style={isCustom ? { background: toHex(value) } : undefined}
+        >
+          <input
+            type="color"
+            value={toHex(value ?? 0xffffff)}
+            onChange={(event) =>
+              onChange(parseInt(event.target.value.slice(1), 16))
+            }
+          />
+        </label>
+      </div>
+    </div>
+  );
 }
 
 export default function CustomizeMenu({ onBack }) {
   const [customization, setCustomization] = useState(loadCustomization);
   const [tab, setTab] = useState("color");
   const [coins, setCoins] = useState(getCoins);
-  const [previewOption, setPreviewOption] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const update = (patch) => {
-    const next = { ...customization, ...patch };
+  const update = (next) => {
     setCustomization(next);
     saveCustomization(next);
   };
 
-  const effectIds = useMemo(
-    () =>
-      new Set(
-        ACCESSORY_CATEGORIES.find(
-          (category) => category.id === "effect"
-        ).options.map((option) => option.id)
-      ),
-    []
-  );
+  const patch = (fields) => update({ ...customization, ...fields });
 
-  const withOption = (list, option) => {
-    if (option.kind === "effect") {
-      return [...list.filter((id) => !effectIds.has(id)), option.id];
+  const previewLook = useMemo(() => {
+    if (!preview) {
+      return customization;
     }
-    return [...list, option.id];
-  };
+    const entries =
+      preview.type === "item" ? [preview.item] : getSetItems(preview.set);
+    return entries.reduce((look, entry) => equipItem(look, entry), customization);
+  }, [customization, preview]);
 
-  const previewAccessories = useMemo(() => {
-    const base = customization.accessories ?? [];
-    if (!previewOption || base.includes(previewOption.id)) {
-      return base;
-    }
-    return withOption(base, previewOption);
-  }, [customization.accessories, previewOption, effectIds]);
-
-  const directEquipToggle = (option) => {
-    const accessories = customization.accessories ?? [];
+  const onItemClick = (entry) => {
     audio.play("uiClick");
-    if (accessories.includes(option.id)) {
-      update({ accessories: accessories.filter((id) => id !== option.id) });
-    } else {
-      update({ accessories: withOption(accessories, option) });
+    if (isItemOwned(entry)) {
+      if (isToggleItem(entry) && isItemEquipped(entry, customization)) {
+        update(unequipItem(customization, entry));
+      } else {
+        update(equipItem(customization, entry));
+      }
+      setPreview(null);
+      return;
     }
-    setPreviewOption(null);
-  };
-
-  const selectPreview = (option) => {
-    audio.play("uiClick");
-    setPreviewOption((current) =>
-      current?.id === option.id && current?.kind === option.kind
+    setPreview((current) =>
+      current?.type === "item" && current.item === entry
         ? null
-        : option
+        : { type: "item", item: entry }
     );
   };
 
-  const rowClick = (option) => {
-    if (isOwned(option.kind, option.id)) {
-      directEquipToggle(option);
-    } else {
-      selectPreview(option);
-    }
-  };
-
-  const buySelected = () => {
-    if (!previewOption) {
+  const onSetClick = (set) => {
+    audio.play("uiClick");
+    if (getSetPrice(set).missing.length === 0) {
+      update(
+        getSetItems(set).reduce((look, entry) => equipItem(look, entry), customization)
+      );
+      setPreview(null);
       return;
     }
-    const accessories = customization.accessories ?? [];
-    if (spendCoins(previewOption.price)) {
-      audio.play("uiBuy");
-      unlockCosmetic(previewOption.kind, previewOption.id);
-      setCoins(getCoins());
-      update({ accessories: withOption(accessories, previewOption) });
-      setPreviewOption(null);
-    }
+    setPreview((current) =>
+      current?.type === "set" && current.set === set ? null : { type: "set", set }
+    );
   };
 
-  const renderSwatches = (selectedColor, patchKey) => (
-    <div
-      style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: "10px",
-        maxWidth: "220px",
-      }}
-    >
-      {PLAYER_COLORS.map((color) => (
-        <button
-          key={color}
-          className={`swatch${selectedColor === color ? " selected" : ""}`}
-          style={{
-            background: `#${color.toString(16).padStart(6, "0")}`,
-          }}
-          onMouseEnter={() => audio.play("uiHover")}
-          onClick={() => {
-            audio.play("uiClick");
-            update({ [patchKey]: color });
-          }}
+  const previewPrice = !preview
+    ? 0
+    : preview.type === "item"
+      ? preview.item.price
+      : getSetPrice(preview.set).discounted;
+  const previewLock = preview?.type === "item" ? getItemLock(preview.item) : null;
+  const affordable = coins >= previewPrice;
+
+  const completePurchase = () => {
+    setConfirmOpen(false);
+    if (!preview || !spendCoins(previewPrice)) {
+      return;
+    }
+    audio.play("uiBuy");
+    const bought =
+      preview.type === "item" ? [preview.item] : getSetPrice(preview.set).missing;
+    for (const entry of bought) {
+      unlockCosmetic(entry.kind, entry.id);
+    }
+    const toEquip =
+      preview.type === "item" ? [preview.item] : getSetItems(preview.set);
+    update(toEquip.reduce((look, entry) => equipItem(look, entry), customization));
+    setCoins(getCoins());
+    setPreview(null);
+  };
+
+  const attemptPurchase = () => {
+    if (!preview || !affordable || previewLock) {
+      return;
+    }
+    if (previewPrice >= CONFIRM_PRICE_THRESHOLD) {
+      audio.play("uiClick");
+      setConfirmOpen(true);
+      return;
+    }
+    completePurchase();
+  };
+
+  const renderStatus = (entry) => {
+    const equipped = isItemEquipped(entry, customization);
+    if (isItemOwned(entry)) {
+      return equipped ? (
+        <span style={{ color: "#ffee00" }}>{isToggleItem(entry) ? "ON" : "✔"}</span>
+      ) : (
+        <span style={{ color: "#666" }}>{isToggleItem(entry) ? "OFF" : ""}</span>
+      );
+    }
+    const lock = getItemLock(entry);
+    if (lock) {
+      return (
+        <span style={{ color: "#ffb31a" }}>
+          🏆 {lock.current}/{lock.target}
+        </span>
+      );
+    }
+    return (
+      <span style={{ color: "#ffd23e" }}>
+        <CoinIcon size={11} /> {formatPrice(entry.price)}
+      </span>
+    );
+  };
+
+  const renderItemRow = (entry) => {
+    const rarityColor = getRarityColor(entry.rarity);
+    const equipped = isItemOwned(entry) && isItemEquipped(entry, customization);
+    const previewed = preview?.type === "item" && preview.item === entry;
+    return (
+      <button
+        key={`${entry.kind}:${entry.id}`}
+        className={`shop-row${equipped ? " equipped" : ""}${
+          previewed ? " previewed" : ""
+        }`}
+        style={{ "--rarity": rarityColor }}
+        onMouseEnter={() => audio.play("uiHover")}
+        onClick={() => onItemClick(entry)}
+      >
+        <Thumb
+          entry={entry}
+          color={customization.color}
+          projectileColor={customization.projectileColor}
         />
-      ))}
-    </div>
-  );
+        <span className="shop-row-text">
+          <span style={{ color: rarityColor }}>{entry.label}</span>
+          <span className="shop-row-rarity" style={{ color: rarityColor }}>
+            {RARITIES[entry.rarity]?.label}
+          </span>
+        </span>
+        <span className="shop-row-status">{renderStatus(entry)}</span>
+      </button>
+    );
+  };
 
-  const activeCategory = ACCESSORY_CATEGORIES.find(
-    (category) => category.id === tab
-  );
-
-  const renderAccessoryList = (options) => (
-    <div className="cosmetic-scroll">
-      {options.map((option) => {
-        const active = (customization.accessories ?? []).includes(option.id);
-        const owned = isOwned(option.kind, option.id);
-        const isPreviewed =
-          previewOption?.id === option.id && previewOption?.kind === option.kind;
-        return (
-          <button
-            key={option.id}
-            className={`menu-button${active ? " selected" : ""}`}
-            style={{
-              fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              flexShrink: 0,
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "7px 8px",
-              borderRadius: "4px",
-              background: isPreviewed ? "rgba(0, 229, 255, 0.12)" : "transparent",
-              boxShadow: isPreviewed
-                ? "0 0 0 2px #00e5ff, 0 0 10px rgba(0, 229, 255, 0.45)"
-                : "none",
-            }}
-            onMouseEnter={() => audio.play("uiHover")}
-            onClick={() => rowClick(option)}
-          >
-            <span style={{ fontSize: "15px" }}>
-              {option.kind === "effect"
-                ? active
-                  ? "◉"
-                  : "○"
-                : active
-                  ? "☑"
-                  : "☐"}
+  const renderSetRow = (set) => {
+    const rarityColor = getRarityColor(getSetRarity(set));
+    const { missing, discounted } = getSetPrice(set);
+    const previewed = preview?.type === "set" && preview.set === set;
+    return (
+      <button
+        key={set.id}
+        className={`shop-row${previewed ? " previewed" : ""}`}
+        style={{ "--rarity": rarityColor }}
+        onMouseEnter={() => audio.play("uiHover")}
+        onClick={() => onSetClick(set)}
+      >
+        <Thumb
+          set={set}
+          color={customization.color}
+          projectileColor={customization.projectileColor}
+        />
+        <span className="shop-row-text">
+          <span style={{ color: rarityColor }}>{set.label}</span>
+          <span className="shop-row-rarity" style={{ color: "#999" }}>
+            {getSetItems(set)
+              .map((entry) => entry.label)
+              .join(" + ")}
+          </span>
+        </span>
+        <span className="shop-row-status">
+          {missing.length === 0 ? (
+            <span style={{ color: "#ffee00" }}>WEAR</span>
+          ) : (
+            <span style={{ color: "#ffd23e" }}>
+              <CoinIcon size={11} /> {formatPrice(discounted)}
             </span>
-            <span>{option.label}</span>
-            {!owned && (
-              <span
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  fontSize: "11px",
-                  color: "#ffd23e",
-                  marginLeft: "auto",
-                }}
-              >
-                🔒 <CoinIcon size={12} /> {formatPrice(option.price)}
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
+          )}
+        </span>
+      </button>
+    );
+  };
 
-  const previewAffordable = previewOption && coins >= previewOption.price;
+  const activeTab = SHOP_TABS.find((entry) => entry.id === tab);
+  const previewName =
+    preview?.type === "item" ? preview.item.label : preview?.set.label;
+  const previewRarity =
+    preview?.type === "item" ? preview.item.rarity : preview && getSetRarity(preview.set);
 
   return (
     <div
@@ -256,11 +499,7 @@ export default function CustomizeMenu({ onBack }) {
       <style>{MENU_CSS}</style>
       <style>{CUSTOMIZE_CSS}</style>
 
-      <MenuStage
-        color={customization.color}
-        accessories={previewAccessories}
-        projectileColor={customization.projectileColor}
-      />
+      <MenuStage customization={previewLook} showcase />
 
       <div
         style={{
@@ -269,8 +508,8 @@ export default function CustomizeMenu({ onBack }) {
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
-          gap: "22px",
-          paddingLeft: "8%",
+          gap: "18px",
+          paddingLeft: "6%",
           pointerEvents: "none",
         }}
       >
@@ -280,8 +519,7 @@ export default function CustomizeMenu({ onBack }) {
               fontSize: "min(4vw, 44px)",
               letterSpacing: "6px",
               color: "#ffee00",
-              textShadow:
-                "0 0 24px rgba(255, 238, 0, 0.5), 4px 4px 0 #7a5c00",
+              textShadow: "0 0 24px rgba(255, 238, 0, 0.5), 4px 4px 0 #7a5c00",
               margin: 0,
             }}
           >
@@ -292,7 +530,7 @@ export default function CustomizeMenu({ onBack }) {
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              marginTop: "14px",
+              marginTop: "12px",
               fontSize: "14px",
               color: "#ffd23e",
               textShadow: "2px 2px #000",
@@ -302,58 +540,79 @@ export default function CustomizeMenu({ onBack }) {
           </div>
         </div>
 
-        <div style={{ pointerEvents: "auto", maxWidth: "360px" }}>
-          <div style={{ display: "flex", gap: "18px", marginBottom: "20px" }}>
-            {TABS.map((t) => (
+        <div
+          style={{
+            pointerEvents: "auto",
+            width: "min(400px, 48vw)",
+            alignSelf: "flex-start",
+          }}
+        >
+          <div className="shop-tabs">
+            {SHOP_TABS.map((entry) => (
               <button
-                key={t.id}
-                className={`tab-button${tab === t.id ? " active" : ""}`}
+                key={entry.id}
+                className={`tab-button${tab === entry.id ? " active" : ""}`}
                 onMouseEnter={() => audio.play("uiHover")}
                 onClick={() => {
                   audio.play("uiClick");
-                  setTab(t.id);
+                  setTab(entry.id);
                 }}
               >
-                {t.label}
+                {entry.label}
               </button>
             ))}
           </div>
 
           {tab === "color" && (
-            <div style={{ marginBottom: "8px" }}>
-              <div
-                style={{
-                  fontSize: "9px",
-                  color: "#888",
-                  letterSpacing: "2px",
-                  margin: "0 0 8px",
-                }}
-              >
-                CUBE
-              </div>
-              {renderSwatches(customization.color, "color")}
-              <div
-                style={{
-                  fontSize: "9px",
-                  color: "#888",
-                  letterSpacing: "2px",
-                  margin: "14px 0 8px",
-                }}
-              >
-                SHOT
-              </div>
-              {renderSwatches(
-                customization.projectileColor,
-                "projectileColor"
-              )}
+            <div className="cosmetic-scroll">
+              <ColorRow
+                label="BODY"
+                value={customization.color}
+                onChange={(color) => patch({ color })}
+              />
+              <ColorRow
+                label="SHOT"
+                value={customization.projectileColor}
+                onChange={(projectileColor) => patch({ projectileColor })}
+              />
+              <ColorRow
+                label="DASH GHOST"
+                value={customization.dashColor}
+                allowAuto
+                onChange={(dashColor) => patch({ dashColor })}
+              />
+              <ColorRow
+                label="SHIELD AURA"
+                value={customization.shieldColor}
+                allowAuto
+                onChange={(shieldColor) => patch({ shieldColor })}
+              />
             </div>
           )}
 
-          {activeCategory && renderAccessoryList(activeCategory.options)}
+          {tab === "sets" && (
+            <div className="cosmetic-scroll">
+              <div className="shop-section-label">
+                BUY THE WHOLE SET: {Math.round(SET_DISCOUNT * 100)}% OFF
+              </div>
+              {SETS.map(renderSetRow)}
+            </div>
+          )}
+
+          {activeTab?.sections && (
+            <div className="cosmetic-scroll">
+              {activeTab.sections.map((section) => (
+                <React.Fragment key={section.label}>
+                  <div className="shop-section-label">{section.label}</div>
+                  {section.items.map(renderItemRow)}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
 
           <button
             className="menu-button"
-            style={{ marginTop: "22px", fontSize: "14px" }}
+            style={{ marginTop: "18px", fontSize: "14px" }}
             onMouseEnter={() => audio.play("uiHover")}
             onClick={() => {
               audio.play("uiClick");
@@ -365,43 +624,149 @@ export default function CustomizeMenu({ onBack }) {
         </div>
       </div>
 
-      {previewOption && (
+      {preview && (
+        <div style={PANEL_STYLE}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: getRarityColor(previewRarity) }}>
+              {previewName}
+            </span>
+            <span style={{ fontSize: "8px", color: getRarityColor(previewRarity) }}>
+              {RARITIES[previewRarity]?.label}
+            </span>
+          </div>
+
+          {preview.type === "set" && (
+            <div style={{ fontSize: "8px", color: "#aaa", lineHeight: "1.8" }}>
+              {getSetItems(preview.set).map((entry) => (
+                <div key={`${entry.kind}:${entry.id}`}>
+                  {isItemOwned(entry) ? "✔ " : "• "}
+                  {entry.label}
+                </div>
+              ))}
+              <div style={{ marginTop: "4px" }}>
+                <span style={{ textDecoration: "line-through", color: "#666" }}>
+                  {formatPrice(getSetPrice(preview.set).full)}
+                </span>{" "}
+                <span style={{ color: "#7cff6b" }}>
+                  -{Math.round(SET_DISCOUNT * 100)}%
+                </span>
+              </div>
+            </div>
+          )}
+
+          {previewLock ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <span style={{ fontSize: "9px", color: "#ffb31a", lineHeight: "1.6" }}>
+                🏆 {previewLock.label}
+              </span>
+              <span style={{ fontSize: "8px", color: "#bbb", lineHeight: "1.6" }}>
+                {previewLock.description}
+              </span>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${(previewLock.current / previewLock.target) * 100}%`,
+                  }}
+                />
+              </div>
+              <span style={{ fontSize: "8px", color: "#888" }}>
+                {previewLock.current} / {previewLock.target}
+              </span>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "14px",
+              }}
+            >
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontSize: "12px",
+                  color: "#ffd23e",
+                }}
+              >
+                <CoinIcon size={13} /> {formatPrice(previewPrice)}
+              </span>
+              <button
+                className="buy-button"
+                disabled={!affordable}
+                onMouseEnter={() => affordable && audio.play("uiHover")}
+                onClick={attemptPurchase}
+              >
+                {affordable
+                  ? "BUY"
+                  : `NEED ${formatPrice(previewPrice - coins)} MORE`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmOpen && preview && (
         <div
           style={{
             position: "absolute",
-            bottom: "8%",
-            right: "5%",
-            zIndex: 60,
-            padding: "14px 18px",
-            background: "rgba(8, 8, 14, 0.9)",
-            border: "2px solid #ffee00",
-            borderRadius: "8px",
-            boxShadow: "0 0 20px rgba(255, 238, 0, 0.35)",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(0, 0, 0, 0.7)",
             display: "flex",
             alignItems: "center",
-            gap: "18px",
+            justifyContent: "center",
             fontFamily: '"Press Start 2P", monospace',
           }}
         >
           <div
             style={{
-              display: "flex",
+              ...PANEL_STYLE,
+              position: "static",
+              width: "min(420px, 90vw)",
               alignItems: "center",
-              gap: "6px",
-              fontSize: "12px",
-              color: "#ffd23e",
+              textAlign: "center",
+              gap: "18px",
             }}
           >
-            <CoinIcon size={13} /> {formatPrice(previewOption.price)}
+            <span style={{ fontSize: "12px", lineHeight: "1.8" }}>
+              BUY{" "}
+              <span style={{ color: getRarityColor(previewRarity) }}>{previewName}</span>?
+            </span>
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "14px",
+                color: "#ffd23e",
+              }}
+            >
+              <CoinIcon size={15} /> {formatPrice(previewPrice)}
+            </span>
+            <div style={{ display: "flex", gap: "14px" }}>
+              <button
+                className="buy-button"
+                onMouseEnter={() => audio.play("uiHover")}
+                onClick={completePurchase}
+              >
+                YES, BUY
+              </button>
+              <button
+                className="buy-button secondary"
+                onMouseEnter={() => audio.play("uiHover")}
+                onClick={() => {
+                  audio.play("uiClick");
+                  setConfirmOpen(false);
+                }}
+              >
+                CANCEL
+              </button>
+            </div>
           </div>
-          <button
-            className="buy-button"
-            disabled={!previewAffordable}
-            onMouseEnter={() => previewAffordable && audio.play("uiHover")}
-            onClick={buySelected}
-          >
-            BUY
-          </button>
         </div>
       )}
     </div>

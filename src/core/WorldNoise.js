@@ -1,5 +1,5 @@
 
-function hash2D(x, z, seed) {
+export function hash2D(x, z, seed) {
   let h = Math.imul(x, 374761393) ^ Math.imul(z, 668265263) ^ Math.imul(seed, 144665);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   h ^= h >>> 16;

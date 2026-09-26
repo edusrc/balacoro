@@ -4,6 +4,11 @@ import { Minimap } from "../core/Minimap";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPixelatedPass } from "three/examples/jsm/postprocessing/RenderPixelatedPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { ColorGradingShader } from "../core/ColorGradingShader.js";
+import { disposeKillEffects } from "../core/killEffects.js";
+import { disposePowerFx } from "../core/powerFx.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { setFloatingTextCamera } from "../components/createFloatingText.js";
@@ -25,9 +30,28 @@ import {
   RAIN_CHANCE,
   RAIN_DURATION,
   WEATHER_FADE_SPEED,
+  SWAMP_FOG_DENSITY,
+  VOLCANIC_FOG_DENSITY,
+  TONE_MAPPING_EXPOSURE,
+  SUN_INTENSITY,
+  DAY_AMBIENT,
+  MOON_LIGHT,
+  NIGHT_AMBIENT,
+  BLOOM_ENABLED,
+  BLOOM_RADIUS,
+  BLOOM_STRENGTH,
+  BLOOM_THRESHOLD,
+  GRADING_SATURATION,
+  GRADING_CONTRAST,
+  GRADING_VIGNETTE,
+  GRADING_MIST_SATURATION,
+  GRADING_TINTS,
 } from "../constants";
 
 const TOTAL_CYCLE = DAY_DURATION + NIGHT_DURATION;
+const MOON_DIRECTION = new THREE.Vector3(-0.35, 0.82, 0.45).normalize();
+const TWILIGHT_BLEND = 0.3;
+const MIN_SUN_LIGHT_ELEVATION = 25;
 const ETERNAL_BLOOD_MOON_DIFFICULTY = DIFFICULTY_COLOR_MAX_LEVEL + 5;
 
 export class Game {
@@ -96,7 +120,8 @@ export class Game {
     );
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.physicallyCorrectLights = true;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE.noon;
     this.container.appendChild(this.renderer.domElement);
   }
 
@@ -168,15 +193,87 @@ export class Game {
     this.renderPixelatedPass.normalEdgeStrength = 0.3;
     this.renderPixelatedPass.depthEdgeStrength = 0.2;
     this.composer.addPass(this.renderPixelatedPass);
+
+    if (BLOOM_ENABLED) {
+      this.bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(
+          this.container.clientWidth,
+          this.container.clientHeight
+        ),
+        BLOOM_STRENGTH.noon,
+        BLOOM_RADIUS,
+        BLOOM_THRESHOLD.noon
+      );
+      this.composer.addPass(this.bloomPass);
+    }
+
     this.composer.addPass(new OutputPass());
+
+    this.gradingPass = new ShaderPass(ColorGradingShader);
+    this.gradingPass.uniforms.uSaturation.value = GRADING_SATURATION;
+    this.gradingPass.uniforms.uContrast.value = GRADING_CONTRAST;
+    this.gradingPass.uniforms.uVignette.value = GRADING_VIGNETTE;
+    this.composer.addPass(this.gradingPass);
+
+    this._gradingShadowTarget = new THREE.Vector3();
+    this._gradingHighlightTarget = new THREE.Vector3();
+  }
+
+  _updatePostProcessing(smoothProgress, deltaSeconds) {
+    this.renderer.toneMappingExposure = THREE.MathUtils.lerp(
+      TONE_MAPPING_EXPOSURE.night,
+      TONE_MAPPING_EXPOSURE.noon,
+      smoothProgress
+    );
+
+    if (this.bloomPass) {
+      this.bloomPass.strength = THREE.MathUtils.lerp(
+        BLOOM_STRENGTH.night,
+        BLOOM_STRENGTH.noon,
+        smoothProgress
+      );
+      this.bloomPass.threshold = THREE.MathUtils.lerp(
+        BLOOM_THRESHOLD.night,
+        BLOOM_THRESHOLD.noon,
+        smoothProgress
+      );
+    }
+
+    const uniforms = this.gradingPass.uniforms;
+    const tints = this.isNight
+      ? this.isFullMoon
+        ? GRADING_TINTS.bloodmoon
+        : GRADING_TINTS.night
+      : GRADING_TINTS.day;
+    this._gradingShadowTarget.fromArray(tints.shadow);
+    this._gradingHighlightTarget.fromArray(tints.highlight);
+
+    const blend =
+      deltaSeconds > 0 ? Math.min(deltaSeconds * 0.5, 1) : 0;
+    if (this._gradingInitialized) {
+      uniforms.uShadowTint.value.lerp(this._gradingShadowTarget, blend);
+      uniforms.uHighlightTint.value.lerp(this._gradingHighlightTarget, blend);
+    } else {
+      this._gradingInitialized = true;
+      uniforms.uShadowTint.value.copy(this._gradingShadowTarget);
+      uniforms.uHighlightTint.value.copy(this._gradingHighlightTarget);
+    }
+
+    const saturationTarget = this.weatherState?.mistActive
+      ? GRADING_MIST_SATURATION
+      : GRADING_SATURATION;
+    uniforms.uSaturation.value +=
+      (saturationTarget - uniforms.uSaturation.value) * blend;
   }
 
   initInteraction() {
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    this._aimPoint = new THREE.Vector3();
+    this.hasMouseAim = false;
 
-    this.container.addEventListener("mousemove", this.onMouseMove);
+    this.container.addEventListener("pointermove", this.onMouseMove);
     window.addEventListener("resize", this.onWindowResize);
   }
 
@@ -243,24 +340,41 @@ export class Game {
       rainTimer: this._randRange(RAIN_CHECK_INTERVAL),
     };
 
-    const makePoints = (count, color, size) => {
+    const makePoints = (count, color, size, options = {}) => {
       const positions = new Float32Array(count * 3);
+      const colors = options.palette ? new Float32Array(count * 3) : null;
+      const paletteColor = new THREE.Color();
       for (let i = 0; i < count; i++) {
         positions[i * 3] = (Math.random() - 0.5) * 60;
         positions[i * 3 + 1] = Math.random() * 25;
         positions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+        if (colors) {
+          paletteColor.set(
+            options.palette[Math.floor(Math.random() * options.palette.length)]
+          );
+          colors[i * 3] = paletteColor.r;
+          colors[i * 3 + 1] = paletteColor.g;
+          colors[i * 3 + 2] = paletteColor.b;
+        }
       }
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute(
         "position",
         new THREE.BufferAttribute(positions, 3)
       );
+      if (colors) {
+        geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      }
       const material = new THREE.PointsMaterial({
-        color,
+        color: colors ? 0xffffff : color,
         size,
         transparent: true,
         opacity: 0.75,
         depthWrite: false,
+        vertexColors: Boolean(colors),
+        blending: options.additive
+          ? THREE.AdditiveBlending
+          : THREE.NormalBlending,
       });
       const points = new THREE.Points(geometry, material);
       points.visible = false;
@@ -275,8 +389,58 @@ export class Game {
     this.rainOpacity = 0;
     this.snowOpacity = 0;
 
+    this.biomeParticles = [
+      {
+        points: makePoints(350, 0x7a7474, 0.18),
+        fall: 1.6,
+        drift: 1,
+        weight: (weights) => weights.volcanic,
+      },
+      {
+        points: makePoints(160, 0xff7a2a, 0.16, { additive: true }),
+        fall: -1.8,
+        drift: 0.6,
+        weight: (weights) => weights.volcanic,
+      },
+      {
+        points: makePoints(180, 0, 0.26, {
+          palette: [0xd9822b, 0xc0392b, 0xe5b33a, 0xa8541c],
+        }),
+        fall: 1.4,
+        drift: 2.2,
+        weight: (weights) => weights.autumn,
+      },
+      {
+        points: makePoints(220, 0, 0.15, {
+          additive: true,
+          palette: [0x5ff3ff, 0xff5fe0, 0xa36bff, 0xffffff],
+        }),
+        fall: -0.6,
+        drift: 0.8,
+        weight: (weights) => weights.crystal,
+      },
+      {
+        points: makePoints(180, 0xb8ff7a, 0.12, { additive: true }),
+        fall: -0.3,
+        drift: 1.2,
+        weight: (weights) => weights.swamp,
+      },
+    ];
+    for (const layer of this.biomeParticles) {
+      layer.baseOpacity = layer.points.material.opacity;
+      layer.opacity = 0;
+    }
+
+    this.swampFogColor = new THREE.Color(0x6f7d62);
+    this.volcanicFogColor = new THREE.Color(0x4a3028);
+    this.targetFogColor = new THREE.Color();
+
     this.weatherGroup = new THREE.Group();
-    this.weatherGroup.add(this.rainPoints, this.snowPoints);
+    this.weatherGroup.add(
+      this.rainPoints,
+      this.snowPoints,
+      ...this.biomeParticles.map((layer) => layer.points)
+    );
     this.scene.add(this.weatherGroup);
   }
 
@@ -289,9 +453,15 @@ export class Game {
     this.weatherGroup.position.set(player.position.x, 0, player.position.z);
 
     const state = this.weatherState;
+    if (this.isNight && state.mistActive) {
+      state.mistActive = false;
+      state.mistTimer = this._randRange(MIST_CHECK_INTERVAL);
+    }
     state.mistTimer -= deltaSeconds;
     if (state.mistTimer <= 0) {
-      if (state.mistActive) {
+      if (this.isNight) {
+        state.mistTimer = this._randRange(MIST_CHECK_INTERVAL);
+      } else if (state.mistActive) {
         state.mistActive = false;
         state.mistTimer = this._randRange(MIST_CHECK_INTERVAL);
       } else if (Math.random() < MIST_CHANCE) {
@@ -319,11 +489,16 @@ export class Game {
     const weights = this.scene.tileManager?.getSmoothBiomeWeights(
       player.position.x,
       player.position.z
-    ) ?? { forest: 0, snow: 0, city: 0, desert: 0 };
+    ) ?? { forest: 0, snow: 0, desert: 0 };
     this.biomeWeights = weights;
 
     const rainTarget = state.rainActive
-      ? Math.min(weights.forest + weights.city, 1)
+      ? Math.min(
+          (weights.forest ?? 0) +
+            (weights.autumn ?? 0) +
+            (weights.swamp ?? 0),
+          1
+        )
       : 0;
     const snowTarget = weights.snow;
     const fadeStep = Math.min(deltaSeconds * WEATHER_FADE_SPEED, 1);
@@ -344,17 +519,42 @@ export class Game {
       this._dropPoints(this.snowPoints, 3.5 * deltaSeconds, deltaSeconds);
     }
 
+    for (const layer of this.biomeParticles) {
+      const target = Math.min(layer.weight(weights) ?? 0, 1);
+      layer.opacity += (target - layer.opacity) * fadeStep;
+      const visible = layer.opacity > 0.02;
+      layer.points.visible = visible;
+      layer.points.material.opacity = layer.opacity * layer.baseOpacity;
+      if (visible) {
+        this._dropPoints(
+          layer.points,
+          layer.fall * deltaSeconds,
+          deltaSeconds * layer.drift
+        );
+      }
+    }
+
+    const swampWeight = weights.swamp ?? 0;
+    const volcanicWeight = weights.volcanic ?? 0;
     const fog = this.scene.fog;
     const targetDensity = state.mistActive
       ? MIST_FOG_DENSITY
-      : DEFAULT_FOG_DENSITY;
+      : Math.max(
+          DEFAULT_FOG_DENSITY,
+          DEFAULT_FOG_DENSITY +
+            (SWAMP_FOG_DENSITY - DEFAULT_FOG_DENSITY) * swampWeight +
+            (VOLCANIC_FOG_DENSITY - DEFAULT_FOG_DENSITY) * volcanicWeight
+        );
     fog.density += (targetDensity - fog.density) * Math.min(deltaSeconds, 1);
 
     const targetColor = state.mistActive
       ? this.mistFogColor
       : this.isFullMoon && this.isNight
         ? this.bloodFogColor
-        : this.defaultFogColor;
+        : this.targetFogColor
+            .copy(this.defaultFogColor)
+            .lerp(this.swampFogColor, swampWeight)
+            .lerp(this.volcanicFogColor, volcanicWeight);
     fog.color.lerp(targetColor, Math.min(deltaSeconds, 1));
   }
 
@@ -375,6 +575,9 @@ export class Game {
       if (phase === "day") {
         if (!isFirstSync) {
           audio.play("eventDay");
+        }
+        if (previousPhase === "bloodmoon") {
+          this.scene.onBloodMoonSurvived?.();
         }
         audio.playMusic("musicDay");
       } else if (phase === "night") {
@@ -428,6 +631,27 @@ export class Game {
       "desertWind",
       (this.biomeWeights?.desert ?? 0) > 0.4
     );
+
+    const weights = this.biomeWeights ?? {};
+    const biomeLoops = [
+      ["ambienceSwamp", weights.swamp ?? 0],
+      ["ambienceVolcanic", weights.volcanic ?? 0],
+      ["ambienceCrystal", weights.crystal ?? 0],
+      ["ambienceAutumn", weights.autumn ?? 0],
+      ["ambienceForestDay", this.isNight ? 0 : weights.forest ?? 0],
+    ];
+    for (const [loopName, weight] of biomeLoops) {
+      if (weight > 0.05) {
+        audio.startLoop(loopName);
+        audio.setLoopVolume(loopName, Math.min(weight, 1));
+      } else {
+        audio.stopLoop(loopName);
+      }
+    }
+    audio.setScheduler("swampFrog", (weights.swamp ?? 0) > 0.4);
+    audio.setScheduler("lavaBubble", (weights.volcanic ?? 0) > 0.4);
+    audio.setScheduler("volcanicRumble", (weights.volcanic ?? 0) > 0.4);
+    audio.setScheduler("crystalChime", (weights.crystal ?? 0) > 0.4);
   }
 
   _dropPoints(points, fallStep, driftDelta) {
@@ -436,6 +660,8 @@ export class Game {
       let y = positions.getY(i) - fallStep;
       if (y < 0) {
         y += 25;
+      } else if (y > 25) {
+        y -= 25;
       }
       positions.setY(i, y);
       if (driftDelta > 0) {
@@ -472,6 +698,9 @@ export class Game {
 
     if (this.isNight && !this._wasNight) {
       this.nightCount = (this.nightCount ?? 0) + 1;
+      if (this.nightCount === 1) {
+        this.scene.onFirstNightfall?.();
+      }
     }
     this._wasNight = this.isNight;
     if (!this.isNight) {
@@ -510,32 +739,85 @@ export class Game {
 
     const playerPosition = this.scene?.player?.position;
     const anchor = playerPosition ?? new THREE.Vector3();
+    if (!this._lightDirection) {
+      this._lightDirection = new THREE.Vector3();
+      this._lightingSun = new THREE.Vector3();
+      this._nightLightColor = new THREE.Color();
+      this._dayLightColor = new THREE.Color();
+      this._nightAmbientColor = new THREE.Color();
+    }
+    const twilight = this.isNight
+      ? 0
+      : THREE.MathUtils.smoothstep(smoothProgress, 0, TWILIGHT_BLEND);
+    this._lightingSun.setFromSphericalCoords(
+      1,
+      THREE.MathUtils.degToRad(90 - Math.max(elevation, MIN_SUN_LIGHT_ELEVATION)),
+      theta
+    );
+    const lightDirection = this._lightDirection
+      .copy(MOON_DIRECTION)
+      .lerp(this._lightingSun, twilight)
+      .normalize();
     this.sunLight.position
       .copy(anchor)
-      .addScaledVector(this.sun, 150);
+      .addScaledVector(lightDirection, 150);
     this.sunLight.target.position.copy(anchor);
     this.sunLight.target.updateMatrixWorld();
     this.sunLight.updateMatrixWorld(true);
 
     this.sunSphere.position.copy(anchor).addScaledVector(this.sun, 5000);
 
-    this.sunLight.intensity = 1.3 + 3 * smoothProgress;
-    this.sunLight.color.lerpColors(
+    this.sunLight.visible = true;
+    this._nightLightColor.setHex(
+      this.isFullMoon ? MOON_LIGHT.bloodColor : MOON_LIGHT.color
+    );
+    this._nightAmbientColor.setHex(
+      this.isFullMoon ? NIGHT_AMBIENT.bloodColor : NIGHT_AMBIENT.color
+    );
+    this._dayLightColor.lerpColors(
       this.sunHorizonColor,
       this.sunNoonColor,
       Math.min(smoothProgress * 1.8, 1)
     );
-    this.sunLight.visible = smoothProgress > 0.01;
-    if (this.isFullMoon) {
-      this.ambientLight.color.setHex(0xff6666);
-      this.ambientLight.intensity = 0.12;
-    } else {
-      this.ambientLight.color.setHex(0xffffff);
-      this.ambientLight.intensity = 0.05 + 0.15 * smoothProgress;
-    }
-    this.renderer.toneMappingExposure = 0.2 + smoothProgress * 1.3;
+    const dayIntensity = THREE.MathUtils.lerp(
+      SUN_INTENSITY.horizon,
+      SUN_INTENSITY.noon,
+      smoothProgress
+    );
+    const dayAmbient = THREE.MathUtils.lerp(
+      DAY_AMBIENT.horizon,
+      DAY_AMBIENT.noon,
+      smoothProgress
+    );
+    this.sunLight.intensity = THREE.MathUtils.lerp(
+      MOON_LIGHT.intensity,
+      dayIntensity,
+      twilight
+    );
+    this.sunLight.color.lerpColors(
+      this._nightLightColor,
+      this._dayLightColor,
+      twilight
+    );
+    this.ambientLight.intensity = THREE.MathUtils.lerp(
+      NIGHT_AMBIENT.intensity,
+      dayAmbient,
+      twilight
+    );
+    this.ambientLight.color.lerpColors(
+      this._nightAmbientColor,
+      this._dayLightColor.clone().lerp(new THREE.Color(0xffffff), 0.7),
+      twilight
+    );
+    this.sunSmoothProgress = smoothProgress;
 
-    if (this.icon) {
+    const iconState = this.isNight
+      ? this.isFullMoon
+        ? "bloodmoon"
+        : "moon"
+      : "sun";
+    if (this.icon && iconState !== this._iconState) {
+      this._iconState = iconState;
       const iconStyle = this.isNight
         ? this.isFullMoon
           ? "filter: sepia(1) saturate(6) hue-rotate(-45deg) brightness(1.1) drop-shadow(0 0 10px rgba(255, 60, 60, 0.9));"
@@ -548,26 +830,38 @@ export class Game {
   }
 
   onMouseMove = (event) => {
+    if (event.pointerType && event.pointerType !== "mouse") {
+      return;
+    }
     const rect = this.container.getBoundingClientRect();
     this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-    const intersectionPoint = new THREE.Vector3();
-    if (
-      this.raycaster.ray.intersectPlane(this.groundPlane, intersectionPoint)
-    ) {
-      const playerPosition = this.scene.player.position;
-      const aimDirection = new THREE.Vector3()
-        .subVectors(intersectionPoint, playerPosition)
-        .normalize();
-      this.scene.player.lastDirection.copy(aimDirection);
-    }
+    this.hasMouseAim = true;
+    this._updateMouseAim();
   };
+
+  _updateMouseAim() {
+    if (!this.hasMouseAim) {
+      return;
+    }
+    const player = this.scene.player;
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    if (
+      this.raycaster.ray.intersectPlane(this.groundPlane, this._aimPoint)
+    ) {
+      this._aimPoint.sub(player.position).setY(0);
+      if (this._aimPoint.lengthSq() > 0.0001) {
+        player.lastDirection.copy(this._aimPoint.normalize());
+      }
+    }
+  }
 
   animate = () => {
     this.animationFrameId = requestAnimationFrame(this.animate);
     this.scene.update(this.camera);
+    if (!this.scene.isPaused) {
+      this._updateMouseAim();
+    }
     const now = Date.now();
     const deltaMs = now - this.lastFrameTime;
     this.lastFrameTime = now;
@@ -579,6 +873,10 @@ export class Game {
     this.updateSunPosition(this.totalElapsedTime);
     this.scene.isNight = this.isNight;
     this.updateWeather(this.scene.isPaused ? 0 : deltaMs / 1000);
+    this._updatePostProcessing(
+      this.sunSmoothProgress ?? 1,
+      this.scene.isPaused ? 0 : deltaMs / 1000
+    );
     this._syncAudio(this.scene.isPaused ? 0 : deltaMs / 1000);
     this.minimap.update(
       this.scene.player,
@@ -611,13 +909,22 @@ export class Game {
     audio.stopAll();
     cancelAnimationFrame(this.animationFrameId);
     window.removeEventListener("resize", this.onWindowResize);
-    this.container.removeEventListener("mousemove", this.onMouseMove);
+    this.container.removeEventListener("pointermove", this.onMouseMove);
     if (ENABLE_MINI_VIEW) {
       window.removeEventListener("keydown", this.onMiniViewKeyDown);
     }
     this.minimap.dispose();
+    disposeKillEffects(this.scene);
+    disposePowerFx(this.scene);
+    this.scene.player?.trailEmitter?.dispose();
+    this.bloomPass?.dispose();
+    this.gradingPass?.dispose();
     if (this.weatherGroup) {
-      for (const points of [this.rainPoints, this.snowPoints]) {
+      for (const points of [
+        this.rainPoints,
+        this.snowPoints,
+        ...this.biomeParticles.map((layer) => layer.points),
+      ]) {
         points.geometry.dispose();
         points.material.dispose();
       }

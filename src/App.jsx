@@ -9,6 +9,9 @@ import PowersMenu from "./components/PowersMenu.jsx";
 import LevelUpModal from "./components/LevelUpModal.jsx";
 import SkillChoiceModal from "./components/SkillChoiceModal.jsx";
 import Banner from "./components/Banner.jsx";
+import AchievementToasts, {
+  ACHIEVEMENT_TOAST_DURATION,
+} from "./components/AchievementToasts.jsx";
 import DifficultySkull from "./components/DifficultySkull.jsx";
 import DebugOverlays from "./components/DebugOverlays.jsx";
 import VitalsHud from "./components/VitalsHud.jsx";
@@ -42,9 +45,10 @@ export default function App() {
   const [isCameraInfoVisible, setIsCameraInfoVisible] = useState(false);
   const [isPlayerStatsVisible, setIsPlayerStatsVisible] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [levelUpOpen, setLevelUpOpen] = useState(false);
+  const [levelUpOpen, setLevelUpOpen] = useState(0);
   const [skillChoices, setSkillChoices] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [achievementToasts, setAchievementToasts] = useState([]);
   const [continuePrompt, setContinuePrompt] = useState(false);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const pendingLoadRef = useRef(null);
@@ -196,8 +200,8 @@ export default function App() {
         audio.play("uiPause");
       }
     };
-    game.scene.onShowLevelUp = () => {
-      setLevelUpOpen(true);
+    game.scene.onShowLevelUp = (pending = 1) => {
+      setLevelUpOpen(Math.max(pending, 1));
       audio.setPaused(true);
     };
     game.scene.onShowSkillChoices = (skills) => {
@@ -206,6 +210,13 @@ export default function App() {
     };
     game.scene.onBanner = (nextBanner) => {
       setBanner(nextBanner);
+    };
+    game.scene.onAchievement = (achievement) => {
+      const toast = { ...achievement, key: `${achievement.id}-${Date.now()}` };
+      setAchievementToasts((list) => [...list, toast]);
+      setTimeout(() => {
+        setAchievementToasts((list) => list.filter((entry) => entry.key !== toast.key));
+      }, ACHIEVEMENT_TOAST_DURATION);
     };
     let animationFrameId;
 
@@ -316,7 +327,7 @@ export default function App() {
     setScreen("menu");
     setIsPaused(false);
     setGameOver(false);
-    setLevelUpOpen(false);
+    setLevelUpOpen(0);
     setSkillChoices(null);
     setBanner(null);
     setConfirmLeaveOpen(false);
@@ -421,6 +432,7 @@ export default function App() {
 
       <DifficultySkull power={stats.power} progress={stats.powerProgress} />
       <Banner banner={banner} />
+      <AchievementToasts toasts={achievementToasts} />
 
       {isTouchDevice && !isPaused && !gameOver && (
         <>
@@ -437,12 +449,13 @@ export default function App() {
         </>
       )}
 
-      {levelUpOpen && (
+      {levelUpOpen > 0 && (
         <LevelUpModal
+          pending={levelUpOpen}
           onChoose={(passive) => {
-            gameRef.current?.scene.choosePassive(passive);
-            setLevelUpOpen(false);
+            setLevelUpOpen(0);
             audio.setPaused(false);
+            gameRef.current?.scene.choosePassive(passive);
           }}
         />
       )}
@@ -453,9 +466,9 @@ export default function App() {
           activeSkills={stats.player.active_skills}
           isTouchDevice={isTouchDevice}
           onChoose={(skill) => {
-            gameRef.current?.scene.chooseSkill(skill);
             setSkillChoices(null);
             audio.setPaused(false);
+            gameRef.current?.scene.chooseSkill(skill);
           }}
         />
       )}

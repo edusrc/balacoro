@@ -178,8 +178,10 @@ export const PLAYER_INITIAL_LEVEL = 1;
 export const PLAYER_INITIAL_XP = 0;
 
 export const PLAYER_LIGHT_COLOR = 0xf5e690;
-export const PLAYER_LIGHT_INTENSITY_GLOWING = 5;
-export const PLAYER_LIGHT_INTENSITY_NORMAL = 1;
+export const PLAYER_LIGHT_INTENSITY_GLOWING = 22;
+export const PLAYER_LIGHT_INTENSITY_NORMAL = 4.5;
+export const PLAYER_LIGHT_HEIGHT = 3.2;
+export const PLAYER_LIGHT_CONE_ANGLE = 1.15;
 export const PLAYER_LIGHT_DISTANCE_GLOWING = 50;
 export const PLAYER_LIGHT_DISTANCE_NORMAL = 10;
 
@@ -220,20 +222,30 @@ export const ENEMY_STUCK_THRESHOLD = 0.35;
 export const ENEMY_RESTUCK_THRESHOLD = 0.05;
 export const ENEMY_DETOUR_MAX_TIME = 3;
 
-export const CITY_SIZE_IN_CHUNKS = 6;
-export const CITY_REGION_SIZE = 24;
-export const CITY_CHANCE = 0.4;
-export const BIOME_NOISE_FREQUENCY = 0.06;
-export const SNOW_MAX = 0.42;
-export const FOREST_MAX = 0.58;
-export const BIOME_TRANSITION_BAND = 0.08;
-export const VILLAGE_CHANCE = 0.006;
-export const POI_CHANCE = 0.02;
-export const CLUMP_NOISE_FREQUENCY = 0.13;
-export const CLUMP_DENSITY_MIN = 0.15;
-export const CLUMP_DENSITY_RANGE = 1.7;
-export const LAMP_CHANCE = 0.7;
-export const WINDOW_LIT_CHANCE = 0.35;
+export const BIOME_CELL_SIZE = 150;
+export const BIOME_BLEND_BAND = 14;
+export const BIOME_WARP_AMOUNT = 38;
+export const BIOME_WEIGHTS = {
+  forest: 3,
+  autumn: 2,
+  snow: 2,
+  desert: 2,
+  swamp: 1.5,
+  volcanic: 1,
+  crystal: 0.8,
+};
+export const SAFE_START_RADIUS = 14;
+export const STRUCTURE_CHANCE = 0.08;
+export const CAMP_REGION_SIZE = 4;
+export const CAMP_CHANCE = 0.55;
+export const CAMP_TRIGGER_DISTANCE = 16;
+export const CAMP_GUARD_COUNT = 3;
+export const TILE_BUILD_BUDGET = 1;
+export const FLOW_FIELD_SIZE = 96;
+export const FLOW_FIELD_INTERVAL = 0.3;
+export const LAVA_DAMAGE_PER_SECOND = 14;
+export const SWAMP_FOG_DENSITY = 0.032;
+export const VOLCANIC_FOG_DENSITY = 0.018;
 
 export const BOSS_SPECIAL_COOLDOWN = { min: 5, max: 9 };
 export const BOSS_SPECIAL_RANGE = 40;
@@ -274,3 +286,25 @@ export const BANNER_DURATION = 3.5;
 export const LOW_HEALTH_THRESHOLD = 0.4;
 export const SECOND_WIND_INVINCIBILITY_DURATION = 5;
 export const TWIN_SHOT_DAMAGE_MULTIPLIER = 1;
+
+export const TONE_MAPPING_EXPOSURE = { night: 1.05, noon: 1.05 };
+export const SUN_INTENSITY = { horizon: 1.1, noon: 3.2 };
+export const DAY_AMBIENT = { horizon: 0.22, noon: 0.3 };
+export const MOON_LIGHT = { intensity: 1.1, color: 0x9db4ff, bloodColor: 0xff6a5a };
+export const NIGHT_AMBIENT = { intensity: 0.32, color: 0x8594cc, bloodColor: 0xb05050 };
+export const BLOOM_ENABLED = true;
+export const BLOOM_RADIUS = 0.45;
+export const BLOOM_STRENGTH = { night: 0.75, noon: 0.2 };
+export const BLOOM_THRESHOLD = { night: 0.95, noon: 4 };
+export const GRADING_SATURATION = 1.15;
+export const GRADING_CONTRAST = 1.08;
+export const GRADING_VIGNETTE = 0.35;
+export const GRADING_MIST_SATURATION = 0.6;
+export const GRADING_TINTS = {
+  day: { shadow: [0.94, 0.98, 1.08], highlight: [1.06, 1.0, 0.92] },
+  night: { shadow: [0.82, 0.9, 1.18], highlight: [0.92, 1.0, 1.12] },
+  bloodmoon: { shadow: [1.2, 0.78, 0.78], highlight: [1.12, 0.9, 0.88] },
+};
+
+export const PLAYER_WALK_ANIMATION = true;
+export const ENEMY_WALK_ANIMATION = true;

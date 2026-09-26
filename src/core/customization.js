@@ -4,6 +4,13 @@ export const DEFAULT_CUSTOMIZATION = {
   color: 0xffee00,
   projectileColor: 0x00ff00,
   accessories: [],
+  skin: "plain",
+  eyes: "bead",
+  brows: "none",
+  shotShape: "box",
+  killEffect: "pixels",
+  dashColor: null,
+  shieldColor: null,
 };
 
 export function loadCustomization() {
@@ -17,7 +24,11 @@ export function loadCustomization() {
       : [stored.hat, stored.glasses, stored.ears].filter(
           (id) => id && id !== "none"
         );
+    const killEffect = stored.killEffect === "smoke" ? "explosion" : stored.killEffect;
     return {
+      ...DEFAULT_CUSTOMIZATION,
+      ...stored,
+      killEffect: killEffect ?? DEFAULT_CUSTOMIZATION.killEffect,
       color: stored.color ?? DEFAULT_CUSTOMIZATION.color,
       projectileColor:
         stored.projectileColor ?? DEFAULT_CUSTOMIZATION.projectileColor,

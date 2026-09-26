@@ -32,7 +32,7 @@ function formatLabel(key) {
     .replace(/^./, (str) => str.toUpperCase());
 }
 
-export default function LevelUpModal({ onChoose }) {
+export default function LevelUpModal({ onChoose, pending = 1 }) {
   return (
     <div
       style={{
@@ -90,7 +90,7 @@ export default function LevelUpModal({ onChoose }) {
             textShadow: "0 0 14px rgba(255, 238, 0, 0.6)",
           }}
         >
-          LEVEL UP!
+          LEVEL UP!{pending > 1 ? ` x${pending}` : ""}
         </h2>
         <p
           style={{

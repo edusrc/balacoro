@@ -1,78 +1,70 @@
-import * as THREE from "three";
-import { fractalNoise2D, createTileRng } from "./WorldNoise.js";
-import { CityBiome } from "./biomes/CityBiome.js";
-import { ForestBiome } from "./biomes/ForestBiome.js";
-import { DesertBiome } from "./biomes/DesertBiome.js";
-import { SnowBiome } from "./biomes/SnowBiome.js";
+import { createTileRng } from "./WorldNoise.js";
+import { BiomeField, BIOMES } from "./world/biomeField.js";
+import { generateNatureTile, CELLS_PER_TILE, lavaMaterial } from "./world/worldGenerator.js";
+import { worldUniforms } from "./world/instancing.js";
 import {
-  CITY_SIZE_IN_CHUNKS,
-  CITY_REGION_SIZE,
-  CITY_CHANCE,
-  BIOME_NOISE_FREQUENCY,
-  SNOW_MAX,
-  FOREST_MAX,
-  BIOME_TRANSITION_BAND,
-  VILLAGE_CHANCE,
-  POI_CHANCE,
-  CLUMP_NOISE_FREQUENCY,
-  CLUMP_DENSITY_MIN,
-  CLUMP_DENSITY_RANGE,
+  circleOverlaps,
+  circlePushOut,
+  aabbOverlaps,
+} from "./world/collision.js";
+import { FlowField } from "./world/flowField.js";
+import { GROUND_EFFECTS, ZONE } from "./world/zones.js";
+import {
+  CAMP_REGION_SIZE,
+  CAMP_CHANCE,
+  TILE_BUILD_BUDGET,
 } from "../constants.js";
+
+const COLLIDER_CELL = 4;
+const LOAD_RADIUS_X = 4;
+const LOAD_RADIUS_Z = 3;
+
+function cellKey(cellX, cellZ) {
+  return (cellX + 32768) * 65536 + (cellZ + 32768);
+}
 
 export class WorldTileManager {
   constructor(scene, tileSize = 20, seed = Math.floor(Math.random() * 1000000)) {
     this.scene = scene;
     this.tileSize = tileSize;
-    this.loadedTiles = new Map();
     this.seed = seed;
-
-    this.biomes = {
-      city: new CityBiome(),
-      forest: new ForestBiome(),
-      desert: new DesertBiome(),
-      snow: new SnowBiome(),
-    };
-
-    this._scratchPoint = new THREE.Vector3();
-    this._scratchColorA = new THREE.Color();
-    this._scratchColorB = new THREE.Color();
-    this._cityRectCache = new Map();
+    this.loadedTiles = new Map();
+    this.tilesByIndex = new Map();
+    this.field = new BiomeField(seed);
+    this._campCache = new Map();
+    this.buildQueue = [];
+    this.queuedKeys = new Set();
+    this.colliderCells = new Map();
+    this.queryStamp = 0;
+    this.flowField = new FlowField();
+    this.pois = new Map();
+    this.time = 0;
+    this._sample = {};
   }
 
-  _getCityRect(regionX, regionZ) {
+  _campChunk(regionX, regionZ) {
     const key = `${regionX}_${regionZ}`;
-    if (this._cityRectCache.has(key)) {
-      return this._cityRectCache.get(key);
+    if (this._campCache.has(key)) {
+      return this._campCache.get(key);
     }
-
-    const rng = createTileRng(regionX, regionZ, this.seed ^ 0xc17e);
-    let rect = null;
-    if (rng.next() < CITY_CHANCE) {
-      const maxOffset = CITY_REGION_SIZE - CITY_SIZE_IN_CHUNKS;
-      const minX = regionX * CITY_REGION_SIZE + rng.int(0, maxOffset);
-      const minZ = regionZ * CITY_REGION_SIZE + rng.int(0, maxOffset);
-      rect = {
-        minX,
-        minZ,
-        maxX: minX + CITY_SIZE_IN_CHUNKS,
-        maxZ: minZ + CITY_SIZE_IN_CHUNKS,
+    const rng = createTileRng(regionX, regionZ, this.seed ^ 0xca3f);
+    let chunk = null;
+    if (rng.next() < CAMP_CHANCE && !(regionX === 0 && regionZ === 0)) {
+      chunk = {
+        x: regionX * CAMP_REGION_SIZE + rng.int(0, CAMP_REGION_SIZE - 1),
+        z: regionZ * CAMP_REGION_SIZE + rng.int(0, CAMP_REGION_SIZE - 1),
       };
     }
-    this._cityRectCache.set(key, rect);
-    return rect;
+    this._campCache.set(key, chunk);
+    return chunk;
   }
 
-  _isCityChunk(chunkX, chunkZ) {
-    const regionX = Math.floor(chunkX / CITY_REGION_SIZE);
-    const regionZ = Math.floor(chunkZ / CITY_REGION_SIZE);
-    const rect = this._getCityRect(regionX, regionZ);
-    return (
-      rect !== null &&
-      chunkX >= rect.minX &&
-      chunkX < rect.maxX &&
-      chunkZ >= rect.minZ &&
-      chunkZ < rect.maxZ
+  _hasCamp(chunkX, chunkZ) {
+    const chunk = this._campChunk(
+      Math.floor(chunkX / CAMP_REGION_SIZE),
+      Math.floor(chunkZ / CAMP_REGION_SIZE)
     );
+    return chunk !== null && chunk.x === chunkX && chunk.z === chunkZ;
   }
 
   _tileKey(chunkX, chunkZ) {
@@ -84,220 +76,193 @@ export class WorldTileManager {
   }
 
   getBiomeSample(chunkX, chunkZ) {
-    if (this._isCityChunk(chunkX, chunkZ)) {
-      return { primary: "city", secondary: null, blend: 0 };
-    }
-
-    const value = fractalNoise2D(
-      chunkX * BIOME_NOISE_FREQUENCY,
-      chunkZ * BIOME_NOISE_FREQUENCY,
-      this.seed
-    );
-
-    let primary;
-    let secondary;
-    let distance;
-
-    if (value < SNOW_MAX) {
-      primary = "snow";
-      secondary = "forest";
-      distance = SNOW_MAX - value;
-    } else if (value < FOREST_MAX) {
-      primary = "forest";
-      const distanceToSnow = value - SNOW_MAX;
-      const distanceToDesert = FOREST_MAX - value;
-      if (distanceToSnow < distanceToDesert) {
-        secondary = "snow";
-        distance = distanceToSnow;
-      } else {
-        secondary = "desert";
-        distance = distanceToDesert;
-      }
-    } else {
-      primary = "desert";
-      secondary = "forest";
-      distance = value - FOREST_MAX;
-    }
-
-    if (distance >= BIOME_TRANSITION_BAND) {
-      return { primary, secondary: null, blend: 0 };
-    }
-
-    const blend =
-      Math.round((0.5 * (1 - distance / BIOME_TRANSITION_BAND)) * 10) / 10;
-    if (blend === 0) {
-      return { primary, secondary: null, blend: 0 };
-    }
-    return { primary, secondary, blend };
-  }
-
-  getBiomeWeights(x, z) {
-    const sample = this.getBiomeSample(
-      this._worldToChunk(x),
-      this._worldToChunk(z)
-    );
-    const weights = { city: 0, forest: 0, desert: 0, snow: 0 };
-    weights[sample.primary] = 1 - sample.blend;
-    if (sample.secondary) {
-      weights[sample.secondary] = sample.blend;
-    }
-    return weights;
-  }
-
-  getSmoothBiomeWeights(x, z) {
-    const gridX = x / this.tileSize;
-    const gridZ = z / this.tileSize;
-    const baseX = Math.floor(gridX);
-    const baseZ = Math.floor(gridZ);
-    const fracX = gridX - baseX;
-    const fracZ = gridZ - baseZ;
-
-    const weights = { city: 0, forest: 0, desert: 0, snow: 0 };
-    for (const [chunkX, weightX] of [
-      [baseX, 1 - fracX],
-      [baseX + 1, fracX],
-    ]) {
-      for (const [chunkZ, weightZ] of [
-        [baseZ, 1 - fracZ],
-        [baseZ + 1, fracZ],
-      ]) {
-        const corner = weightX * weightZ;
-        if (corner === 0) {
-          continue;
-        }
-        const sample = this.getBiomeSample(chunkX, chunkZ);
-        weights[sample.primary] += corner * (1 - sample.blend);
-        if (sample.secondary) {
-          weights[sample.secondary] += corner * sample.blend;
-        }
-      }
-    }
-    return weights;
+    return this.field.sample(chunkX * this.tileSize, chunkZ * this.tileSize, {});
   }
 
   getBiomeNameForChunk(chunkX, chunkZ) {
     return this.getBiomeSample(chunkX, chunkZ).primary;
   }
 
-  createTile(chunkX, chunkZ) {
-    const sample = this.getBiomeSample(chunkX, chunkZ);
+  getBiomeNameAt(x, z) {
+    return this.field.sample(x, z, this._sample).primary;
+  }
 
-    if (sample.primary === "city") {
-      return this.biomes.city.createTile(
-        this.scene,
-        this.tileSize,
-        chunkX,
-        chunkZ,
-        this.seed
-      );
+  getSmoothBiomeWeights(x, z) {
+    const weights = {};
+    for (const biome of Object.keys(BIOMES)) {
+      weights[biome] = 0;
     }
-
-    const primary = this.biomes[sample.primary];
-    let groundColor = primary.groundColor;
-
+    const sample = this.field.sample(x, z, this._sample);
+    weights[sample.primary] += 1 - sample.blend;
     if (sample.secondary) {
-      groundColor = this._scratchColorA
-        .set(primary.groundColor)
-        .lerp(
-          this._scratchColorB.set(this.biomes[sample.secondary].groundColor),
-          sample.blend
-        )
-        .getHex();
+      weights[sample.secondary] += sample.blend;
     }
+    return weights;
+  }
 
-    const out = { meshes: [], solidBoxes: [] };
-    out.meshes.push(
-      primary.createPatchyGroundTile(
-        this.scene,
-        this.tileSize,
-        chunkX,
-        chunkZ,
-        groundColor,
-        this.seed
-      )
-    );
+  getBiomeWeights(x, z) {
+    return this.getSmoothBiomeWeights(x, z);
+  }
 
-    if (chunkX === 0 && chunkZ === 0) {
-      return out;
-    }
-
-    if (!sample.secondary) {
-      const poiRng = primary.createRng(chunkX, chunkZ, this.seed ^ 0x90d1);
-      const poiRoll = poiRng.next();
-      if (poiRoll < VILLAGE_CHANCE) {
-        primary.populateVillage(
-          this.scene,
-          this.tileSize,
-          chunkX,
-          chunkZ,
-          poiRng,
-          out
-        );
-        return out;
-      }
-      if (poiRoll < POI_CHANCE) {
-        primary.populatePOI(
-          this.scene,
-          this.tileSize,
-          chunkX,
-          chunkZ,
-          poiRng,
-          out
-        );
-        return out;
-      }
-    }
-
-    const clump = fractalNoise2D(
-      chunkX * CLUMP_NOISE_FREQUENCY,
-      chunkZ * CLUMP_NOISE_FREQUENCY,
-      this.seed ^ 0x7e55
-    );
-    const clumpFactor = CLUMP_DENSITY_MIN + clump * CLUMP_DENSITY_RANGE;
-
-    primary.populate(
-      this.scene,
-      this.tileSize,
+  createTile(chunkX, chunkZ) {
+    return generateNatureTile({
+      scene: this.scene,
+      field: this.field,
+      seed: this.seed,
       chunkX,
       chunkZ,
-      this.seed,
-      out,
-      Math.min((1 - sample.blend) * clumpFactor, 1.4)
-    );
+      tileSize: this.tileSize,
+      hasCamp: this._hasCamp(chunkX, chunkZ),
+    });
+  }
 
-    if (sample.secondary) {
-      this.biomes[sample.secondary].populate(
-        this.scene,
-        this.tileSize,
-        chunkX,
-        chunkZ,
-        this.seed ^ 0x5bd1e995,
-        out,
-        Math.min(sample.blend * clumpFactor, 1.4)
-      );
+  _loadTile(chunkX, chunkZ) {
+    const key = this._tileKey(chunkX, chunkZ);
+    if (this.loadedTiles.has(key)) {
+      return;
     }
-
-    return out;
+    const result = this.createTile(chunkX, chunkZ);
+    const tile = { ...result, chunkX, chunkZ, key };
+    this.loadedTiles.set(key, tile);
+    this.tilesByIndex.set(cellKey(chunkX, chunkZ), tile);
+    for (const collider of tile.colliders) {
+      this._indexCollider(collider);
+    }
+    for (const poi of tile.pois) {
+      this.pois.set(poi.id, poi);
+    }
   }
 
-  getBiomeNameAt(x, z) {
-    return this.getBiomeSample(this._worldToChunk(x), this._worldToChunk(z))
-      .primary;
+  _indexCollider(collider) {
+    const minX = Math.floor(collider.minX / COLLIDER_CELL);
+    const maxX = Math.floor(collider.maxX / COLLIDER_CELL);
+    const minZ = Math.floor(collider.minZ / COLLIDER_CELL);
+    const maxZ = Math.floor(collider.maxZ / COLLIDER_CELL);
+    for (let x = minX; x <= maxX; x++) {
+      for (let z = minZ; z <= maxZ; z++) {
+        const key = cellKey(x, z);
+        let bucket = this.colliderCells.get(key);
+        if (!bucket) {
+          bucket = [];
+          this.colliderCells.set(key, bucket);
+        }
+        bucket.push(collider);
+      }
+    }
   }
 
-  isWorldPositionSolid(x, z) {
-    const point = this._scratchPoint.set(x, 0, z);
-    const chunkX = this._worldToChunk(x);
-    const chunkZ = this._worldToChunk(z);
-
-    for (let cx = chunkX - 1; cx <= chunkX + 1; cx++) {
-      for (let cz = chunkZ - 1; cz <= chunkZ + 1; cz++) {
-        const tile = this.loadedTiles.get(this._tileKey(cx, cz));
-        if (!tile) {
+  _unindexCollider(collider) {
+    const minX = Math.floor(collider.minX / COLLIDER_CELL);
+    const maxX = Math.floor(collider.maxX / COLLIDER_CELL);
+    const minZ = Math.floor(collider.minZ / COLLIDER_CELL);
+    const maxZ = Math.floor(collider.maxZ / COLLIDER_CELL);
+    for (let x = minX; x <= maxX; x++) {
+      for (let z = minZ; z <= maxZ; z++) {
+        const key = cellKey(x, z);
+        const bucket = this.colliderCells.get(key);
+        if (!bucket) {
           continue;
         }
-        for (const box of tile.solidBoxes) {
-          if (box.containsPoint(point)) {
+        const index = bucket.indexOf(collider);
+        if (index >= 0) {
+          bucket.splice(index, 1);
+        }
+        if (bucket.length === 0) {
+          this.colliderCells.delete(key);
+        }
+      }
+    }
+  }
+
+  removeTile(tile) {
+    if (!tile) {
+      return;
+    }
+    for (const mesh of tile.meshes) {
+      this.scene.remove(mesh);
+      if (mesh.isInstancedMesh) {
+        mesh.dispose();
+      } else if (mesh.userData.disposeGeometry) {
+        mesh.geometry.dispose();
+      }
+    }
+    for (const collider of tile.colliders) {
+      this._unindexCollider(collider);
+    }
+    for (const poi of tile.pois) {
+      this.pois.delete(poi.id);
+    }
+    this.tilesByIndex.delete(cellKey(tile.chunkX, tile.chunkZ));
+  }
+
+  update(playerX, playerZ, delta = 0) {
+    this.time += delta;
+    worldUniforms.uTime.value = this.time;
+    lavaMaterial.emissiveIntensity = 1.4 + Math.sin(this.time * 2) * 0.4;
+
+    const chunkX = this._worldToChunk(playerX);
+    const chunkZ = this._worldToChunk(playerZ);
+    const firstLoad = this.loadedTiles.size === 0;
+    const needed = new Set();
+
+    for (let x = chunkX - LOAD_RADIUS_X; x <= chunkX + LOAD_RADIUS_X; x++) {
+      for (let z = chunkZ - LOAD_RADIUS_Z; z <= chunkZ + LOAD_RADIUS_Z; z++) {
+        const key = this._tileKey(x, z);
+        needed.add(key);
+        if (this.loadedTiles.has(key)) {
+          continue;
+        }
+        const urgent = Math.abs(x - chunkX) <= 1 && Math.abs(z - chunkZ) <= 1;
+        if (firstLoad || urgent) {
+          this._loadTile(x, z);
+          this.queuedKeys.delete(key);
+        } else if (!this.queuedKeys.has(key)) {
+          this.queuedKeys.add(key);
+          this.buildQueue.push({ key, x, z });
+        }
+      }
+    }
+
+    this.buildQueue = this.buildQueue.filter((job) => needed.has(job.key));
+    this.queuedKeys = new Set(this.buildQueue.map((job) => job.key));
+    this.buildQueue.sort(
+      (a, b) =>
+        Math.hypot(a.x - chunkX, a.z - chunkZ) - Math.hypot(b.x - chunkX, b.z - chunkZ)
+    );
+    for (let built = 0; built < TILE_BUILD_BUDGET && this.buildQueue.length > 0; built++) {
+      const job = this.buildQueue.shift();
+      this.queuedKeys.delete(job.key);
+      this._loadTile(job.x, job.z);
+    }
+
+    for (const [key, tile] of this.loadedTiles) {
+      if (!needed.has(key)) {
+        this.removeTile(tile);
+        this.loadedTiles.delete(key);
+      }
+    }
+
+    this.flowField.update(delta, playerX, playerZ, this);
+  }
+
+  forEachColliderInRect(minX, maxX, minZ, maxZ, callback) {
+    const stamp = ++this.queryStamp;
+    const cellMinX = Math.floor(minX / COLLIDER_CELL);
+    const cellMaxX = Math.floor(maxX / COLLIDER_CELL);
+    const cellMinZ = Math.floor(minZ / COLLIDER_CELL);
+    const cellMaxZ = Math.floor(maxZ / COLLIDER_CELL);
+    for (let x = cellMinX; x <= cellMaxX; x++) {
+      for (let z = cellMinZ; z <= cellMaxZ; z++) {
+        const bucket = this.colliderCells.get(cellKey(x, z));
+        if (!bucket) {
+          continue;
+        }
+        for (const collider of bucket) {
+          if (collider.stamp === stamp) {
+            continue;
+          }
+          collider.stamp = stamp;
+          if (callback(collider) === true) {
             return true;
           }
         }
@@ -307,69 +272,132 @@ export class WorldTileManager {
   }
 
   intersectsSolid(box) {
-    const minChunkX = this._worldToChunk(box.min.x) - 1;
-    const maxChunkX = this._worldToChunk(box.max.x) + 1;
-    const minChunkZ = this._worldToChunk(box.min.z) - 1;
-    const maxChunkZ = this._worldToChunk(box.max.z) + 1;
+    const minX = box.min.x;
+    const maxX = box.max.x;
+    const minZ = box.min.z;
+    const maxZ = box.max.z;
+    return this.forEachColliderInRect(minX, maxX, minZ, maxZ, (collider) =>
+      aabbOverlaps(collider, minX, maxX, minZ, maxZ)
+    );
+  }
 
-    for (let cx = minChunkX; cx <= maxChunkX; cx++) {
-      for (let cz = minChunkZ; cz <= maxChunkZ; cz++) {
-        const tile = this.loadedTiles.get(this._tileKey(cx, cz));
-        if (!tile) {
-          continue;
-        }
-        for (const solidBox of tile.solidBoxes) {
-          if (solidBox.intersectsBox(box)) {
-            return true;
+  isCircleBlocked(x, z, radius) {
+    return this.forEachColliderInRect(x - radius, x + radius, z - radius, z + radius, (collider) =>
+      circleOverlaps(collider, x, z, radius)
+    );
+  }
+
+  isSegmentClear(fromX, fromZ, toX, toZ, radius, maxDistance) {
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 1e-4) {
+      return true;
+    }
+    const length = Math.min(distance, maxDistance);
+    const directionX = dx / distance;
+    const directionZ = dz / distance;
+    for (let travelled = 0.5; travelled <= length; travelled += 0.5) {
+      const x = fromX + directionX * travelled;
+      const z = fromZ + directionZ * travelled;
+      if (this.isCircleBlocked(x, z, radius) || this.getZoneAt(x, z) === ZONE.LAVA) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  isWorldPositionSolid(x, z) {
+    return this.isCircleBlocked(x, z, 0.05);
+  }
+
+  pushOutCircle(position, radius) {
+    let moved = false;
+    for (let iteration = 0; iteration < 3; iteration++) {
+      let pushed = false;
+      this.forEachColliderInRect(
+        position.x - radius,
+        position.x + radius,
+        position.z - radius,
+        position.z + radius,
+        (collider) => {
+          if (circlePushOut(collider, position, radius)) {
+            pushed = true;
           }
         }
+      );
+      if (!pushed) {
+        break;
       }
+      moved = true;
     }
-    return false;
+    return moved;
   }
 
-  removeTile(tileInfo) {
-    if (!tileInfo) {
-      return;
+  moveCircle(position, targetX, targetZ, radius) {
+    const previousX = position.x;
+    const previousZ = position.z;
+    position.x = targetX;
+    position.z = targetZ;
+    this.pushOutCircle(position, radius);
+    if (this.isCircleBlocked(position.x, position.z, radius * 0.9)) {
+      position.x = previousX;
+      position.z = previousZ;
+      return false;
     }
-
-    for (const mesh of tileInfo.meshes) {
-      this.scene.remove(mesh);
-      if (mesh.isInstancedMesh) {
-        mesh.dispose();
-      } else if (mesh.userData.disposeGeometry) {
-        mesh.geometry.dispose();
-      }
-    }
+    return true;
   }
 
-  update(playerX, playerZ) {
-    const chunkX = this._worldToChunk(playerX);
-    const chunkZ = this._worldToChunk(playerZ);
-    const neededKeys = new Set();
+  getZoneAt(x, z) {
+    const chunkX = this._worldToChunk(x);
+    const chunkZ = this._worldToChunk(z);
+    const tile = this.tilesByIndex.get(cellKey(chunkX, chunkZ));
+    if (!tile?.zones) {
+      return ZONE.NONE;
+    }
+    const cellSize = this.tileSize / CELLS_PER_TILE;
+    const col = Math.floor((x - (chunkX * this.tileSize - this.tileSize / 2)) / cellSize);
+    const row = Math.floor((z - (chunkZ * this.tileSize - this.tileSize / 2)) / cellSize);
+    if (col < 0 || row < 0 || col >= CELLS_PER_TILE || row >= CELLS_PER_TILE) {
+      return ZONE.NONE;
+    }
+    return tile.zones[row * CELLS_PER_TILE + col];
+  }
 
-    for (let x = chunkX - 4; x <= chunkX + 4; x++) {
-      for (let z = chunkZ - 3; z <= chunkZ + 3; z++) {
-        const key = this._tileKey(x, z);
-        neededKeys.add(key);
-
-        if (!this.loadedTiles.has(key)) {
-          const result = this.createTile(x, z);
-          this.loadedTiles.set(key, {
-            meshes: result.meshes,
-            solidBoxes: result.solidBoxes,
-            chunkX: x,
-            chunkZ: z,
-          });
+  forEachZoneGrid(originX, originZ, size, callback) {
+    const minChunkX = this._worldToChunk(originX);
+    const maxChunkX = this._worldToChunk(originX + size);
+    const minChunkZ = this._worldToChunk(originZ);
+    const maxChunkZ = this._worldToChunk(originZ + size);
+    for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+      for (let chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+        const tile = this.tilesByIndex.get(cellKey(chunkX, chunkZ));
+        if (tile?.zones) {
+          callback(
+            tile.zones,
+            CELLS_PER_TILE,
+            chunkX * this.tileSize - this.tileSize / 2,
+            chunkZ * this.tileSize - this.tileSize / 2
+          );
         }
       }
     }
+  }
 
-    for (const [key, tileInfo] of this.loadedTiles) {
-      if (!neededKeys.has(key)) {
-        this.removeTile(tileInfo);
-        this.loadedTiles.delete(key);
-      }
-    }
+  getGroundEffect(x, z) {
+    return GROUND_EFFECTS[this.getZoneAt(x, z)] ?? GROUND_EFFECTS[0];
+  }
+
+  isHazardAt(x, z) {
+    const zone = this.getZoneAt(x, z);
+    return zone === ZONE.LAVA || zone === ZONE.WATER || zone === ZONE.QUICKSAND;
+  }
+
+  getFlowDirection(position, out) {
+    return this.flowField.sample(position, out);
+  }
+
+  getPointsOfInterest() {
+    return this.pois.values();
   }
 }

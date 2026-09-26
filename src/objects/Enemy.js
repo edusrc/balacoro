@@ -12,10 +12,6 @@ import {
   ELITE_COIN_MULTIPLIER,
   ENEMY_DEATH_DURATION,
   ENEMY_FLASH_DURATION,
-  ENEMY_DEATH_PARTICLE_COUNT,
-  ENEMY_STUCK_THRESHOLD,
-  ENEMY_RESTUCK_THRESHOLD,
-  ENEMY_DETOUR_MAX_TIME,
   BOSS_SPECIAL_COOLDOWN,
   BOSS_SPECIAL_RANGE,
   BOSS_TELEGRAPH_TIME,
@@ -25,19 +21,21 @@ import {
   CRITICAL_FLASH_COLOR,
   CRITICAL_PUNCH_SCALE,
   FULL_MOON_SPEED_MULTIPLIER,
+  ENEMY_WALK_ANIMATION,
   POST_MAX_ELITE_CHANCE_PER_LEVEL,
 } from "../constants.js";
 import {
   generateGenome,
   buildMonsterBody,
+  animateMonsterParts,
   getBodyMaterial,
   eyeDayMaterial,
   eyeNightMaterial,
   DIFFICULTY_COLOR_MAX_LEVEL,
 } from "./MonsterGenome.js";
 import { audio } from "../core/AudioEngine.js";
+import { spawnKillEffect } from "../core/killEffects.js";
 
-const particleGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.15);
 const freezeGeometry = new THREE.SphereGeometry(1, 16, 16);
 
 const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -50,6 +48,23 @@ const freezeMaterial = new THREE.MeshBasicMaterial({
   opacity: 0.4,
   depthWrite: false,
 });
+const chargeIndicatorGeometry = new THREE.PlaneGeometry(1, 1);
+chargeIndicatorGeometry.rotateX(-Math.PI / 2);
+chargeIndicatorGeometry.translate(0, 0, 0.5);
+const collisionBoxCenter = new THREE.Vector3();
+const collisionBoxSize = new THREE.Vector3();
+const KNOCKBACK_DECAY = 10;
+const toTarget = new THREE.Vector3();
+const moveDirection = new THREE.Vector3();
+const lookTarget = new THREE.Vector3();
+const PATH_CHECK_INTERVAL = 0.25;
+const KILL_EFFECT_SOUNDS = {
+  confetti: "killConfetti",
+  hearts: "killHearts",
+  explosion: "killExplosion",
+};
+const DIRECT_PATH_LOOKAHEAD = 12;
+const ENEMY_TURN_RATE = 9;
 const eliteAuraGeometry = new THREE.SphereGeometry(0.72, 12, 10);
 const eliteAuraMaterial = new THREE.MeshBasicMaterial({
   color: 0xffd23e,
@@ -126,6 +141,7 @@ export class Enemy extends THREE.Object3D {
     this.eyes = body.eyes;
     this.animatedParts = body.animatedParts;
     this.coreGeometry = body.coreGeometry;
+    this.ownedGeometries = body.ownedGeometries ?? [];
 
     this.bodyScale = new THREE.Vector3(
       this.genome.stretch.x,
@@ -154,9 +170,10 @@ export class Enemy extends THREE.Object3D {
     this.slowTimer = 0;
     this.isDying = false;
     this.deathTimer = 0;
-    this.deathParticles = [];
 
     this.velocity = new THREE.Vector3();
+    this.knockbackVelocity = new THREE.Vector3();
+    this.collisionBox = new THREE.Box3();
 
     this.stuckTime = 0;
     this.detourActive = false;
@@ -217,7 +234,8 @@ export class Enemy extends THREE.Object3D {
     this.healthBarSprite = new THREE.Sprite(spriteMaterial);
     this.healthBarSprite.scale.set(1.5 * this.size, 0.2 * this.size, 1);
     this.healthBarSprite.position.set(0, this.size + 0.2, 0);
-    this.healthBarSprite.visible = !this.isDying;
+    this.healthBarSprite.visible =
+      !this.isDying && (this.isBoss || this.health < this.maxHealth);
     this.add(this.healthBarSprite);
 
     this.updateHealthBar();
@@ -260,7 +278,10 @@ export class Enemy extends THREE.Object3D {
     }
 
     if (this.healthBarSprite) {
-      this.healthBarSprite.visible = this.parent?.isMist !== true;
+      this.healthBarSprite.visible =
+        this.parent?.isMist !== true &&
+        !this.isHiddenInGrass &&
+        (this.isBoss || this.health < this.maxHealth);
     }
 
     if (this.isElite) {
@@ -299,15 +320,30 @@ export class Enemy extends THREE.Object3D {
 
     this.animTime += delta;
     const animSpeed = 3 + this.genome.speedMult * 4;
-    for (const part of this.animatedParts) {
-      const swing = Math.sin(this.animTime * animSpeed + part.phase);
-      if (part.kind === "leg") {
-        part.mesh.rotation.x = swing * 0.6;
-      } else if (part.kind === "tail") {
-        part.mesh.position.x = swing * part.amplitude;
-        part.mesh.rotation.y = swing * 0.35;
-      } else if (part.kind === "antenna") {
-        part.mesh.rotation.z = part.baseRotZ + swing * 0.18;
+    animateMonsterParts(this.animatedParts, this.animTime, animSpeed);
+    if (!ENEMY_WALK_ANIMATION && !this.isMimic && this.bossState !== "telegraph") {
+      this.mesh.position.y =
+        this.bodyScale.y * 0.42 +
+        Math.abs(Math.sin(this.animTime * animSpeed)) * 0.05 * this.size;
+    }
+
+    if (this.knockbackVelocity.lengthSq() > 0.0001) {
+      const pushed = this.position
+        .clone()
+        .addScaledVector(this.knockbackVelocity, delta);
+      if (
+        this.parent?.tileManager?.isCircleBlocked(
+          pushed.x,
+          pushed.z,
+          this.hitboxRadius * 0.85
+        )
+      ) {
+        this.knockbackVelocity.set(0, 0, 0);
+      } else {
+        this.position.copy(pushed);
+        this.knockbackVelocity.multiplyScalar(
+          Math.exp(-KNOCKBACK_DECAY * delta)
+        );
       }
     }
 
@@ -315,119 +351,129 @@ export class Enemy extends THREE.Object3D {
       return;
     }
 
-    const direction = new THREE.Vector3();
-    direction.subVectors(this.target.position, this.position);
-
-    if (direction.lengthSq() === 0) return;
-
-    direction.normalize();
-    this.lookAt(
-      new THREE.Vector3(
-        this.target.position.x,
-        this.position.y,
-        this.target.position.z
-      )
-    );
-
     const tileManager = this.parent?.tileManager;
-    const isBlocked = (pos) => {
-      const box = this.getCollisionBoxAt(pos);
-      return tileManager?.intersectsSolid(box);
-    };
-
-    let moveSpeed =
-      this.speed *
-      (this.parent?.isFullMoon ? FULL_MOON_SPEED_MULTIPLIER : 1);
-    if (this.slowTimer > 0) {
-      this.slowTimer -= delta;
-      moveSpeed *= 0.4;
-    }
-    const currentDist = this.position.distanceToSquared(this.target.position);
-    const forward = direction.clone().multiplyScalar(moveSpeed * delta);
-    const forwardPos = this.position.clone().add(forward);
-
-    if (!isBlocked(forwardPos)) {
-      const newDist = forwardPos.distanceToSquared(this.target.position);
-      if (newDist < currentDist) {
-        this.position.copy(forwardPos);
-        this.detourActive = false;
-        this.stuckTime = 0;
-        this.recentDetourTime = Math.max(this.recentDetourTime - delta, 0);
-        return;
-      }
-    }
-
-    if (this.detourActive) {
-      this.recentDetourTime = 0.5;
-      this.detourTimeLeft -= delta;
-      if (this.detourTimeLeft <= 0) {
-        this.detourActive = false;
-        this.detourSide *= -1;
-        this.stuckTime = 0;
-        return;
-      }
-
-      const candidate = this.position
-        .clone()
-        .addScaledVector(this.detourDirection, moveSpeed * delta);
-      if (!isBlocked(candidate)) {
-        this.position.copy(candidate);
-      } else {
-        this.detourSide *= -1;
-        this.detourDirection
-          .set(-direction.z, 0, direction.x)
-          .multiplyScalar(this.detourSide);
-      }
-      return;
-    }
-
-    this.recentDetourTime = Math.max(this.recentDetourTime - delta, 0);
-
-    const alternatives = [
-      new THREE.Vector3(1, 0, 0),
-      new THREE.Vector3(-1, 0, 0),
-      new THREE.Vector3(0, 0, 1),
-      new THREE.Vector3(0, 0, -1),
-      new THREE.Vector3(1, 0, 1),
-      new THREE.Vector3(-1, 0, 1),
-      new THREE.Vector3(1, 0, -1),
-      new THREE.Vector3(-1, 0, -1),
-    ];
-
-    let bestMove = null;
-    let bestDist = currentDist;
-
-    for (const alt of alternatives) {
-      const candidate = this.position
-        .clone()
-        .add(alt.normalize().multiplyScalar(moveSpeed * delta));
-      if (!isBlocked(candidate)) {
-        const dist = candidate.distanceToSquared(this.target.position);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestMove = candidate;
+    const groundEffect = tileManager?.getGroundEffect(this.position.x, this.position.z);
+    this.isHiddenInGrass = groundEffect?.hides === true && !this.isBoss;
+    if (groundEffect?.damage) {
+      this.burnTimer = (this.burnTimer ?? 0) - delta;
+      if (this.burnTimer <= 0) {
+        this.burnTimer = 0.5;
+        this.burn(Math.max(this.maxHealth * 0.06, 1));
+        if (this.isDying) {
+          return;
         }
       }
     }
 
-    if (bestMove) {
-      this.position.copy(bestMove);
-      this.stuckTime = 0;
+    toTarget.subVectors(this.target.position, this.position).setY(0);
+    const distanceToTarget = toTarget.length();
+    if (distanceToTarget < 1e-4) {
       return;
     }
+    toTarget.divideScalar(distanceToTarget);
+    const collisionRadius = this.hitboxRadius * 0.85;
 
-    this.stuckTime += delta;
-    const stuckThreshold =
-      this.recentDetourTime > 0
-        ? ENEMY_RESTUCK_THRESHOLD
-        : ENEMY_STUCK_THRESHOLD;
-    if (this.stuckTime > stuckThreshold) {
-      this.stuckTime = 0;
-      this.detourActive = true;
-      this.detourTimeLeft = ENEMY_DETOUR_MAX_TIME;
-      this.detourDirection
-        .set(-direction.z, 0, direction.x)
-        .multiplyScalar(this.detourSide);
+    this.pathCheckTimer = (this.pathCheckTimer ?? Math.random() * PATH_CHECK_INTERVAL) - delta;
+    if (this.pathCheckTimer <= 0) {
+      this.pathCheckTimer = PATH_CHECK_INTERVAL * (0.8 + Math.random() * 0.4);
+      this.directPathClear =
+        !tileManager ||
+        distanceToTarget <= 2.5 ||
+        tileManager.isSegmentClear(
+          this.position.x,
+          this.position.z,
+          this.target.position.x,
+          this.target.position.z,
+          collisionRadius * 0.8,
+          DIRECT_PATH_LOOKAHEAD
+        );
+    }
+
+    const followsFlow =
+      this.directPathClear === false &&
+      tileManager?.getFlowDirection(this.position, moveDirection) === true;
+    if (!followsFlow) {
+      moveDirection.copy(toTarget);
+    }
+
+    if (!this.heading) {
+      this.heading = moveDirection.clone();
+    }
+    this.heading.lerp(moveDirection, 1 - Math.exp(-ENEMY_TURN_RATE * delta));
+    if (this.heading.lengthSq() < 1e-6) {
+      this.heading.copy(moveDirection);
+    }
+    this.heading.normalize();
+    moveDirection.copy(this.heading);
+    this.lookAt(
+      lookTarget.set(
+        this.position.x + this.heading.x,
+        this.position.y,
+        this.position.z + this.heading.z
+      )
+    );
+
+    let moveSpeed =
+      this.speed *
+      (this.parent?.isFullMoon ? FULL_MOON_SPEED_MULTIPLIER : 1) *
+      (groundEffect?.speed ?? 1);
+    if (this.slowTimer > 0) {
+      this.slowTimer -= delta;
+      moveSpeed *= 0.4;
+    }
+
+    const startX = this.position.x;
+    const startZ = this.position.z;
+    const nextX = this.position.x + moveDirection.x * moveSpeed * delta;
+    const nextZ = this.position.z + moveDirection.z * moveSpeed * delta;
+    if (tileManager) {
+      tileManager.moveCircle(this.position, nextX, nextZ, collisionRadius);
+    } else {
+      this.position.x = nextX;
+      this.position.z = nextZ;
+    }
+
+    if (ENEMY_WALK_ANIMATION && !this.isMimic && delta > 0) {
+      const speed = Math.hypot(this.position.x - startX, this.position.z - startZ) / delta;
+      this._updateRunAnimation(delta, speed);
+    }
+  }
+
+  _updateRunAnimation(delta, speed) {
+    const walking = speed > 0.4;
+    this.runBlend = THREE.MathUtils.lerp(
+      this.runBlend ?? 0,
+      walking ? 1 : 0,
+      1 - Math.exp(-delta * 10)
+    );
+    if (walking) {
+      this.runPhase = (this.runPhase ?? Math.random() * Math.PI) + delta * (5 + speed * 1.4);
+    }
+    const hop = Math.abs(Math.sin(this.runPhase ?? 0)) * this.runBlend;
+    this.mesh.position.y = this.bodyScale.y * 0.42 + hop * 0.14 * this.size;
+
+    if (this.critPunchTime <= 0) {
+      const stretch = 1 + (hop - 0.5 * this.runBlend) * 0.18;
+      const widen = 1 / Math.sqrt(stretch);
+      this.mesh.scale.set(
+        this.bodyScale.x * widen,
+        this.bodyScale.y * stretch,
+        this.bodyScale.z * widen
+      );
+    }
+
+    const lean = 0.2 * this.runBlend;
+    this.mesh.rotation.x += (lean - this.mesh.rotation.x) * Math.min(delta * 10, 1);
+  }
+
+  burn(amount) {
+    if (this.isDying) {
+      return;
+    }
+    this.health -= amount;
+    this.updateHealthBar();
+    if (this.health <= 0) {
+      this.die();
     }
   }
 
@@ -460,8 +506,10 @@ export class Enemy extends THREE.Object3D {
         )
       );
       this.mesh.position.x = Math.sin(this.bossStateTime * 45) * 0.15;
+      this._showChargeIndicator(this.bossStateTime / BOSS_TELEGRAPH_TIME);
       if (this.bossStateTime >= BOSS_TELEGRAPH_TIME) {
         this.mesh.position.x = 0;
+        this._hideChargeIndicator();
         this.chargeDirection
           .subVectors(this.target.position, this.position)
           .setY(0)
@@ -509,7 +557,57 @@ export class Enemy extends THREE.Object3D {
     return false;
   }
 
+  applyKnockback(direction, force) {
+    if (this.isBoss || this.isDying || this.isDormant) {
+      return;
+    }
+    this.knockbackVelocity.x += direction.x * (force / Math.max(this.size, 1));
+    this.knockbackVelocity.z += direction.z * (force / Math.max(this.size, 1));
+    const maxKnockback = force * 2;
+    if (this.knockbackVelocity.lengthSq() > maxKnockback * maxKnockback) {
+      this.knockbackVelocity.setLength(maxKnockback);
+    }
+  }
+
+  _showChargeIndicator(progress) {
+    if (!this.chargeIndicator) {
+      this.chargeIndicator = new THREE.Mesh(
+        chargeIndicatorGeometry,
+        new THREE.MeshBasicMaterial({
+          color: 0xff2a2a,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        })
+      );
+      this.chargeIndicator.position.y = 0.06;
+      this.chargeIndicator.renderOrder = 1;
+      this.add(this.chargeIndicator);
+    }
+    const chargeLength =
+      this.speed *
+      (this.parent?.isFullMoon ? FULL_MOON_SPEED_MULTIPLIER : 1) *
+      BOSS_CHARGE_SPEED_MULTIPLIER *
+      BOSS_CHARGE_TIME;
+    this.chargeIndicator.scale.set(
+      this.size * 0.8,
+      1,
+      chargeLength * Math.min(progress * 1.5, 1)
+    );
+    this.chargeIndicator.material.opacity =
+      0.18 + 0.3 * progress + Math.sin(progress * 40) * 0.08;
+  }
+
+  _hideChargeIndicator() {
+    if (this.chargeIndicator) {
+      this.remove(this.chargeIndicator);
+      this.chargeIndicator.material.dispose();
+      this.chargeIndicator = null;
+    }
+  }
+
   _endBossSpecial() {
+    this._hideChargeIndicator();
     this.bossState = "chase";
     this.bossStateTime = 0;
     this.bossCooldown =
@@ -522,12 +620,6 @@ export class Enemy extends THREE.Object3D {
     const shrinkProgress = Math.max(this.deathTimer / ENEMY_DEATH_DURATION, 0);
     this.mesh.scale.copy(this.bodyScale).multiplyScalar(shrinkProgress);
 
-    for (const particle of this.deathParticles) {
-      particle.userData.velocity.y -= 12 * delta;
-      particle.position.addScaledVector(particle.userData.velocity, delta);
-      particle.scale.setScalar(this.size * shrinkProgress);
-    }
-
     if (this.deathTimer <= 0) {
       this.dispose();
       if (this.parent) {
@@ -537,19 +629,17 @@ export class Enemy extends THREE.Object3D {
   }
 
   _spawnDeathParticles() {
-    for (let i = 0; i < ENEMY_DEATH_PARTICLE_COUNT; i++) {
-      const particle = new THREE.Mesh(particleGeometry, this.baseMaterial);
-      particle.scale.setScalar(this.size);
-      particle.position.set(0, this.size / 2, 0);
-      const angle = Math.random() * Math.PI * 2;
-      const horizontalSpeed = 1.5 + Math.random() * 2;
-      particle.userData.velocity = new THREE.Vector3(
-        Math.cos(angle) * horizontalSpeed,
-        2 + Math.random() * 2,
-        Math.sin(angle) * horizontalSpeed
-      );
-      this.add(particle);
-      this.deathParticles.push(particle);
+    if (!this.parent) {
+      return;
+    }
+    const style = this.target?.killEffect ?? "pixels";
+    spawnKillEffect(this.parent, this.position, style, {
+      color: this.baseMaterial.color.getHex(),
+      size: this.size,
+    });
+    const killSound = KILL_EFFECT_SOUNDS[style];
+    if (killSound) {
+      audio.play(killSound, { position: this.position });
     }
   }
 
@@ -560,6 +650,7 @@ export class Enemy extends THREE.Object3D {
 
     this.isFrozen = true;
     this.freezeTimer = Math.max(this.freezeTimer ?? 0, duration);
+    this.knockbackVelocity.set(0, 0, 0);
 
     audio.play("powerIceFreeze", { position: this.position });
 
@@ -593,10 +684,8 @@ export class Enemy extends THREE.Object3D {
       const newThisPos = this.position.clone().add(repulsion);
       const newOtherPos = otherEnemy.position.clone().sub(repulsion);
 
-      const isValid = (pos) => {
-        const box = this.getCollisionBoxAt(pos);
-        return !tileManager?.intersectsSolid(box);
-      };
+      const isValid = (pos) =>
+        !tileManager?.isCircleBlocked(pos.x, pos.z, this.hitboxRadius * 0.85);
 
       const canMoveThis = isValid(newThisPos);
       const canMoveOther = isValid(newOtherPos);
@@ -660,6 +749,8 @@ export class Enemy extends THREE.Object3D {
     this.flashTime = 0;
     this.critPunchTime = 0;
     this._restoreMaterials();
+    this._hideChargeIndicator();
+    this.mesh.position.x = 0;
 
     if (this.healthBarSprite) {
       this.healthBarSprite.visible = false;
@@ -672,9 +763,12 @@ export class Enemy extends THREE.Object3D {
 
     this._spawnDeathParticles();
 
-    audio.play(this.isBoss ? "bossDeath" : "enemyDeath", {
-      position: this.position,
-    });
+    const hasKillSound = KILL_EFFECT_SOUNDS[this.target?.killEffect] != null;
+    if (this.isBoss) {
+      audio.play("bossDeath", { position: this.position });
+    } else if (!hasKillSound) {
+      audio.play("enemyDeath", { position: this.position });
+    }
 
     if (this.target?.gainXP) {
       this.target.gainXP(this.xpReward);
@@ -685,13 +779,24 @@ export class Enemy extends THREE.Object3D {
     if (this.target?.onEnemyKilled) {
       this.target.onEnemyKilled();
     }
+    if (this.isBoss) {
+      this.parent?.onBossKilled?.();
+    }
     if (this.isBoss && this.dropsChest !== false && this.parent?.spawnBossChest) {
       this.parent.spawnBossChest(this.position);
     }
   }
 
-  dispose() {
+  disposeBodyGeometries() {
     this.coreGeometry.dispose();
+    for (const geometry of this.ownedGeometries ?? []) {
+      geometry.dispose();
+    }
+    this.ownedGeometries = [];
+  }
+
+  dispose() {
+    this.disposeBodyGeometries();
     if (this.isElite) {
       this.baseMaterial.dispose();
       this.eliteAura.material.dispose();
@@ -722,9 +827,9 @@ export class Enemy extends THREE.Object3D {
   }
 
   getCollisionBoxAt(pos) {
-    return new THREE.Box3().setFromCenterAndSize(
-      new THREE.Vector3(pos.x, pos.y + this.size / 2, pos.z),
-      new THREE.Vector3(this.size, this.size, this.size)
+    return this.collisionBox.setFromCenterAndSize(
+      collisionBoxCenter.set(pos.x, pos.y + this.size / 2, pos.z),
+      collisionBoxSize.set(this.size, this.size, this.size)
     );
   }
 }

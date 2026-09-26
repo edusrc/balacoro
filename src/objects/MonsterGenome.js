@@ -1,15 +1,60 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
+const FORWARD = new THREE.Vector3(0, 0, 1);
+const DOWN_ROTATION = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(1, 0, 0),
+  Math.PI
+);
+const LOCAL_GROUND_Y = -0.46;
 
 const spikeGeometry = new THREE.ConeGeometry(0.09, 0.3, 5);
 const hornGeometry = new THREE.ConeGeometry(0.08, 0.34, 5);
-const legGeometry = new THREE.BoxGeometry(0.11, 0.32, 0.11);
 const plateGeometry = new THREE.BoxGeometry(0.06, 0.3, 0.34);
 const tailGeometry = new THREE.BoxGeometry(0.22, 0.22, 0.22);
+const tailTipGeometry = new THREE.ConeGeometry(0.09, 0.24, 5);
+tailTipGeometry.rotateX(-Math.PI / 2);
 const antennaGeometry = new THREE.CylinderGeometry(0.02, 0.03, 0.32, 4);
 const antennaTipGeometry = new THREE.SphereGeometry(0.05, 6, 5);
 const eyeGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.14);
+const scleraGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.1);
+const browGeometry = new THREE.BoxGeometry(0.22, 0.055, 0.08);
+const mouthGeometry = new THREE.BoxGeometry(1, 0.06, 0.08);
+const toothGeometry = new THREE.ConeGeometry(0.035, 0.1, 4);
+const fangGeometry = new THREE.ConeGeometry(0.05, 0.19, 4);
+const spotGeometry = new THREE.IcosahedronGeometry(0.1, 0);
+const bellyGeometry = new THREE.SphereGeometry(0.3, 7, 5);
+const legUnitGeometry = new THREE.CylinderGeometry(0.065, 0.045, 1, 5);
+legUnitGeometry.translate(0, -0.5, 0);
+const footGeometry = new THREE.BoxGeometry(0.13, 0.06, 0.18);
+const armGeometry = new THREE.CylinderGeometry(0.075, 0.055, 0.36, 5);
+armGeometry.translate(0, -0.18, 0);
+const clawGeometry = new THREE.ConeGeometry(0.03, 0.12, 4);
+const wingGeometry = (() => {
+  const geometry = new THREE.BufferGeometry();
+  const rootFront = [0, 0, 0.12];
+  const rootBack = [0, 0, -0.14];
+  const tip = [0.62, 0.2, -0.1];
+  const trailing = [0.4, -0.02, -0.36];
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(
+      [...rootFront, ...tip, ...rootBack, ...rootBack, ...tip, ...trailing],
+      3
+    )
+  );
+  geometry.computeVertexNormals();
+  return geometry;
+})();
+
+export const MOUTH_TYPES = ["none", "teeth", "fangs"];
+export const EYE_STYLES = ["bead", "googly", "slit"];
+export const PATTERN_TYPES = ["none", "spots", "belly"];
+
+function pick(options) {
+  return options[Math.floor(Math.random() * options.length)];
+}
 
 export const eyeDayMaterial = new THREE.MeshStandardMaterial({
   color: 0x111111,
@@ -29,6 +74,46 @@ const plateMaterial = new THREE.MeshStandardMaterial({
   color: 0x30303c,
   flatShading: true,
 });
+const scleraMaterial = new THREE.MeshStandardMaterial({
+  color: 0xf1efe4,
+  flatShading: true,
+});
+const reptileScleraMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffc83a,
+  emissive: 0x3a2400,
+  flatShading: true,
+});
+const mouthMaterial = new THREE.MeshStandardMaterial({
+  color: 0x2a0509,
+  flatShading: true,
+});
+const wingMaterial = new THREE.MeshStandardMaterial({
+  color: 0x22202c,
+  flatShading: true,
+  side: THREE.DoubleSide,
+});
+const probeMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+
+const toneMaterialCache = new Map();
+function getToneMaterial(bodyMaterial, tone) {
+  const key = `${tone}_${bodyMaterial.color.getHex()}_${bodyMaterial.emissive.getHex()}`;
+  let material = toneMaterialCache.get(key);
+  if (!material) {
+    const hsl = { h: 0, s: 0, l: 0 };
+    bodyMaterial.color.getHSL(hsl);
+    const color =
+      tone === "belly"
+        ? new THREE.Color().setHSL(hsl.h, hsl.s * 0.55, Math.min(hsl.l * 1.35 + 0.12, 0.85))
+        : new THREE.Color().setHSL(hsl.h, Math.min(hsl.s * 1.1, 1), hsl.l * 0.5);
+    material = new THREE.MeshStandardMaterial({
+      color,
+      emissive: bodyMaterial.emissive.clone().multiplyScalar(0.6),
+      flatShading: true,
+    });
+    toneMaterialCache.set(key, material);
+  }
+  return material;
+}
 
 const BODY_BASES = [
   () => new THREE.BoxGeometry(1, 1, 1, 2, 2, 2),
@@ -149,6 +234,12 @@ const ARCHETYPES = {
       plates: 0,
       horns: Math.random() < 0.15,
       antennae: Math.random() < 0.35,
+      mouth: pick(MOUTH_TYPES),
+      eyeStyle: pick(EYE_STYLES),
+      pattern: pick(PATTERN_TYPES),
+      wings: Math.random() < 0.2,
+      arms: false,
+      brows: Math.random() < 0.15,
     }),
   },
   runner: {
@@ -167,6 +258,12 @@ const ARCHETYPES = {
       plates: 0,
       horns: false,
       antennae: Math.random() < 0.7,
+      mouth: Math.random() < 0.6 ? "fangs" : "teeth",
+      eyeStyle: Math.random() < 0.5 ? "slit" : "bead",
+      pattern: Math.random() < 0.5 ? "spots" : "none",
+      wings: Math.random() < 0.25,
+      arms: false,
+      brows: false,
     }),
   },
   tank: {
@@ -185,6 +282,12 @@ const ARCHETYPES = {
       plates: 2 + Math.floor(Math.random() * 3),
       horns: Math.random() < 0.3,
       antennae: false,
+      mouth: pick(["none", "teeth"]),
+      eyeStyle: pick(["bead", "googly"]),
+      pattern: Math.random() < 0.6 ? "belly" : "spots",
+      wings: false,
+      arms: Math.random() < 0.3,
+      brows: Math.random() < 0.5,
     }),
   },
   brute: {
@@ -203,6 +306,12 @@ const ARCHETYPES = {
       plates: Math.floor(Math.random() * 3),
       horns: true,
       antennae: false,
+      mouth: Math.random() < 0.6 ? "fangs" : "teeth",
+      eyeStyle: pick(["bead", "slit"]),
+      pattern: pick(PATTERN_TYPES),
+      wings: false,
+      arms: Math.random() < 0.75,
+      brows: true,
     }),
   },
 };
@@ -330,74 +439,386 @@ const EYE_LAYOUTS = {
   ],
 };
 
+const clawsGeometry = (() => {
+  const pieces = [-1, 0, 1].map((offset) => {
+    const piece = clawGeometry.clone();
+    piece.rotateX(Math.PI * 0.85);
+    piece.translate(offset * 0.045, -0.4, 0.02);
+    return piece;
+  });
+  const merged = mergeGeometries(pieces);
+  for (const piece of pieces) {
+    piece.dispose();
+  }
+  return merged;
+})();
+
+function createSurfaceProbe(geometry) {
+  const mesh = new THREE.Mesh(geometry, probeMaterial);
+  const raycaster = new THREE.Raycaster();
+  const origin = new THREE.Vector3();
+  const direction = new THREE.Vector3();
+
+  const cast = (originX, originY, originZ, dirX, dirY, dirZ) => {
+    origin.set(originX, originY, originZ);
+    direction.set(dirX, dirY, dirZ).normalize();
+    raycaster.set(origin, direction);
+    const hit = raycaster.intersectObject(mesh, false)[0];
+    if (!hit) {
+      return null;
+    }
+    const normal = hit.face
+      ? hit.face.normal.clone()
+      : direction.clone().negate();
+    return { point: hit.point.clone(), normal };
+  };
+
+  const radial = (x, y, z) => {
+    const outward = new THREE.Vector3(x, y, z);
+    if (outward.lengthSq() < 1e-6) {
+      outward.set(0, 1, 0);
+    }
+    outward.normalize();
+    return (
+      cast(
+        outward.x * 3,
+        outward.y * 3,
+        outward.z * 3,
+        -outward.x,
+        -outward.y,
+        -outward.z
+      ) ?? { point: outward.clone().multiplyScalar(0.5), normal: outward }
+    );
+  };
+
+  const front = (x, y) => cast(x, y, 3, 0, 0, -1) ?? radial(x, y, 0.5);
+
+  return { cast, radial, front };
+}
+
+function createStaticBatch() {
+  const buckets = new Map();
+  const matrix = new THREE.Matrix4();
+
+  const add = (material, geometry, position, quaternion, scale) => {
+    matrix.compose(position, quaternion, scale);
+    const transformed = geometry.clone().applyMatrix4(matrix);
+    const flat = transformed.index ? transformed.toNonIndexed() : transformed;
+    if (flat !== transformed) {
+      transformed.dispose();
+    }
+    let list = buckets.get(material);
+    if (!list) {
+      list = [];
+      buckets.set(material, list);
+    }
+    list.push(flat);
+  };
+
+  const build = () => {
+    const meshes = [];
+    for (const [material, list] of buckets) {
+      const merged = mergeGeometries(list, false);
+      for (const piece of list) {
+        piece.dispose();
+      }
+      if (merged) {
+        meshes.push(new THREE.Mesh(merged, material));
+      }
+    }
+    return meshes;
+  };
+
+  return { add, build };
+}
+
+function facingRotation(normal) {
+  const facing = normal.clone().add(FORWARD).normalize();
+  return {
+    facing,
+    rotation: new THREE.Quaternion().setFromUnitVectors(FORWARD, facing),
+  };
+}
+
+export function animateMonsterParts(animatedParts, time, speed) {
+  for (const part of animatedParts) {
+    const swing = Math.sin(
+      time * speed * (part.kind === "wing" ? 2.5 : 1) + part.phase
+    );
+    if (part.kind === "leg") {
+      part.mesh.rotation.x = swing * 0.6;
+    } else if (part.kind === "tail") {
+      part.mesh.position.x = swing * part.amplitude;
+      part.mesh.rotation.y = swing * 0.35;
+    } else if (part.kind === "antenna") {
+      part.mesh.rotation.z = part.baseRotZ + swing * 0.18;
+    } else if (part.kind === "arm") {
+      part.mesh.rotation.x = part.baseRotX + swing * 0.4;
+    } else if (part.kind === "wing") {
+      part.mesh.rotation.z = part.side * (0.15 + swing * 0.6);
+    }
+  }
+}
+
 export function buildMonsterBody(genome, bodyMaterial) {
   const rand = mulberry32(genome.coreSeed);
+  const parts = genome.parts ?? {};
+  const stretchX = genome.stretch?.x ?? 1;
+  const stretchY = genome.stretch?.y ?? 1;
   const group = new THREE.Group();
   const coreGeometry = createCoreGeometry(genome, rand);
   const core = new THREE.Mesh(coreGeometry, bodyMaterial);
   group.add(core);
 
+  const probe = createSurfaceProbe(coreGeometry);
+  const batch = createStaticBatch();
+  const pupilBatch = createStaticBatch();
+  const ownedGeometries = [];
   const flashEntries = [{ mesh: core, material: bodyMaterial }];
   const animatedParts = [];
   const eyes = [];
 
-  const countFactor = { 1: 1.7, 2: 1, 3: 0.85, 4: 0.72 }[genome.eyeCount];
+  const eyeStyle = parts.eyeStyle ?? "bead";
+  const layout = EYE_LAYOUTS[genome.eyeCount] ?? EYE_LAYOUTS[2];
+  const countFactor = { 1: 1.7, 2: 1, 3: 0.85, 4: 0.72 }[genome.eyeCount] ?? 1;
   const eyeSize = genome.eyeScale * countFactor;
   const spread = 0.55 + eyeSize * 0.45;
-  for (const [x, y] of EYE_LAYOUTS[genome.eyeCount]) {
-    const eye = new THREE.Mesh(eyeGeometry, eyeDayMaterial);
-    const jitter = 0.92 + rand() * 0.16;
-    eye.position.set(x * spread, y, 0.48);
-    eye.scale.set(
-      (eyeSize * jitter) / genome.stretch.x,
-      (eyeSize * jitter) / genome.stretch.y,
-      1
-    );
-    group.add(eye);
-    eyes.push(eye);
+  let lowestEyeY = Infinity;
+  const topEyeY = Math.max(...layout.map(([, y]) => y));
+
+  for (const [x, y] of layout) {
+    const size = eyeSize * (0.92 + rand() * 0.16);
+    const hit = probe.front(x * spread, y);
+    const { facing, rotation } = facingRotation(hit.normal);
+    const scaleX = size / stretchX;
+    const scaleY = size / stretchY;
+
+    if (eyeStyle === "bead") {
+      pupilBatch.add(
+        eyeDayMaterial,
+        eyeGeometry,
+        hit.point.clone().addScaledVector(facing, 0.02),
+        rotation,
+        new THREE.Vector3(scaleX, scaleY, 1)
+      );
+    } else {
+      batch.add(
+        eyeStyle === "slit" ? reptileScleraMaterial : scleraMaterial,
+        scleraGeometry,
+        hit.point.clone().addScaledVector(facing, 0.01),
+        rotation,
+        new THREE.Vector3(scaleX, scaleY, 1)
+      );
+      const pupilPosition = hit.point.clone().addScaledVector(facing, 0.05);
+      if (eyeStyle === "googly") {
+        pupilPosition.x += (rand() - 0.5) * 0.05 * scaleX;
+        pupilPosition.y += (rand() - 0.5) * 0.05 * scaleY;
+      }
+      pupilBatch.add(
+        eyeDayMaterial,
+        eyeGeometry,
+        pupilPosition,
+        rotation,
+        eyeStyle === "slit"
+          ? new THREE.Vector3(scaleX * 0.28, scaleY * 1.1, 0.6)
+          : new THREE.Vector3(scaleX * 0.6, scaleY * 0.6, 0.6)
+      );
+    }
+    lowestEyeY = Math.min(lowestEyeY, y - 0.1 * size);
   }
 
-  for (let i = 0; i < genome.parts.spikes; i++) {
-    const ridgePosition =
-      genome.parts.spikes > 1 ? i / (genome.parts.spikes - 1) : 0.5;
-    const direction = new THREE.Vector3(
+  if (parts.brows) {
+    const topRow = layout.filter(([, y]) => y === topEyeY);
+    const browXs =
+      topRow.length === 1
+        ? [-0.1 * eyeSize, 0.1 * eyeSize]
+        : topRow.map(([x]) => x * spread);
+    const browY = topEyeY + eyeSize * 0.1 + 0.07;
+    for (const browX of browXs) {
+      const side = Math.sign(browX);
+      const hit = probe.front(browX, browY);
+      const { facing, rotation } = facingRotation(hit.normal);
+      rotation.multiply(
+        new THREE.Quaternion().setFromAxisAngle(FORWARD, side * 0.4)
+      );
+      batch.add(
+        darkMaterial,
+        browGeometry,
+        hit.point.clone().addScaledVector(facing, 0.03),
+        rotation,
+        new THREE.Vector3(
+          (topRow.length === 1 ? 0.6 : 1) * (eyeSize / stretchX),
+          1 / stretchY,
+          1
+        )
+      );
+    }
+  }
+
+  const mouth = parts.mouth ?? "none";
+  if (mouth !== "none") {
+    const mouthY = Math.max(lowestEyeY - 0.13, -0.3);
+    const width = (0.2 + 0.1 * spread) / stretchX;
+    const center = probe.front(0, mouthY);
+    const { facing, rotation } = facingRotation(center.normal);
+    batch.add(
+      mouthMaterial,
+      mouthGeometry,
+      center.point.clone().addScaledVector(facing, 0.01),
+      rotation,
+      new THREE.Vector3(width, 1 / stretchY, 1)
+    );
+
+    const isFangs = mouth === "fangs";
+    const toothCount = isFangs ? 2 : 4 + Math.floor(rand() * 3);
+    const toothLength = isFangs ? 0.19 : 0.1;
+    for (let i = 0; i < toothCount; i++) {
+      const toothX = isFangs
+        ? (i === 0 ? -1 : 1) * width * 0.3
+        : (i / (toothCount - 1) - 0.5) * width * 0.85;
+      const hit = probe.front(toothX, mouthY);
+      const toothFacing = facingRotation(hit.normal).facing;
+      const position = hit.point.clone().addScaledVector(toothFacing, 0.04);
+      position.y -= toothLength * 0.35;
+      batch.add(
+        hornMaterial,
+        isFangs ? fangGeometry : toothGeometry,
+        position,
+        DOWN_ROTATION,
+        new THREE.Vector3(1 / stretchX, 1 / stretchY, 1)
+      );
+    }
+  }
+
+  for (let i = 0; i < (parts.spikes ?? 0); i++) {
+    const ridgePosition = parts.spikes > 1 ? i / (parts.spikes - 1) : 0.5;
+    const lean = new THREE.Vector3(
       (rand() - 0.5) * 0.2,
       1,
       -(ridgePosition - 0.35) * 0.8
     ).normalize();
-    const spike = new THREE.Mesh(spikeGeometry, darkMaterial);
-    spike.position.set(
+    const hit = probe.radial(
       (rand() - 0.5) * 0.1,
-      0.38,
+      0.55,
       0.35 - ridgePosition * 0.75
     );
-    spike.quaternion.setFromUnitVectors(UP, direction);
-    spike.scale.setScalar(
-      0.9 + rand() * 0.5 - Math.abs(ridgePosition - 0.5) * 0.5
+    const orient = hit.normal.clone().add(lean).normalize();
+    const scale = 0.9 + rand() * 0.5 - Math.abs(ridgePosition - 0.5) * 0.5;
+    batch.add(
+      darkMaterial,
+      spikeGeometry,
+      hit.point.clone().addScaledVector(orient, 0.15 * scale - 0.04),
+      new THREE.Quaternion().setFromUnitVectors(UP, orient),
+      new THREE.Vector3(scale, scale, scale)
     );
-    group.add(spike);
-    flashEntries.push({ mesh: spike, material: darkMaterial });
   }
 
-  if (genome.parts.horns) {
+  if (parts.horns) {
     for (const side of [-1, 1]) {
-      const horn = new THREE.Mesh(hornGeometry, hornMaterial);
-      horn.position.set(side * 0.2, 0.42, 0.08);
-      horn.rotation.z = -side * 0.5;
-      horn.scale.setScalar(1.1 + rand() * 0.5);
-      group.add(horn);
-      flashEntries.push({ mesh: horn, material: hornMaterial });
+      const scale = 1.1 + rand() * 0.5;
+      const hit = probe.radial(side * 0.45, 1, 0.3);
+      const orient = hit.normal
+        .clone()
+        .multiplyScalar(0.6)
+        .add(new THREE.Vector3(side * 0.55, 0.8, 0.15))
+        .normalize();
+      batch.add(
+        hornMaterial,
+        hornGeometry,
+        hit.point.clone().addScaledVector(orient, 0.17 * scale - 0.05),
+        new THREE.Quaternion().setFromUnitVectors(UP, orient),
+        new THREE.Vector3(scale, scale, scale)
+      );
     }
   }
 
-  const legPairs = Math.floor(genome.parts.legs / 2);
+  for (let i = 0; i < (parts.plates ?? 0); i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const z = -0.15 + Math.floor(i / 2) * 0.3;
+    const hit =
+      probe.cast(side * 3, 0.06, z, -side, 0, 0) ??
+      probe.radial(side, 0.1, z);
+    const orient = hit.normal.clone().setY(hit.normal.y * 0.3).normalize();
+    batch.add(
+      plateMaterial,
+      plateGeometry,
+      hit.point.clone().addScaledVector(orient, 0.02),
+      new THREE.Quaternion().setFromUnitVectors(
+        new THREE.Vector3(1, 0, 0),
+        orient
+      ),
+      new THREE.Vector3(1, 1, 1)
+    );
+  }
+
+  const pattern = parts.pattern ?? "none";
+  if (pattern === "spots") {
+    const accent = getToneMaterial(bodyMaterial, "accent");
+    const pairCount = 2 + Math.floor(rand() * 3);
+    for (let i = 0; i < pairCount; i++) {
+      const x = 0.15 + rand() * 0.55;
+      const y = 0.35 + rand() * 0.8;
+      const z = 0.25 - rand() * 1.1;
+      const spotScale = new THREE.Vector3(
+        1.1 + rand() * 0.9,
+        0.35,
+        1.1 + rand() * 0.9
+      );
+      for (const side of i === 0 ? [0] : [-1, 1]) {
+        const hit = probe.radial(side * x, y, z);
+        batch.add(
+          accent,
+          spotGeometry,
+          hit.point.clone().addScaledVector(hit.normal, -0.015),
+          new THREE.Quaternion().setFromUnitVectors(UP, hit.normal),
+          spotScale
+        );
+      }
+    }
+  } else if (pattern === "belly") {
+    const hit = probe.front(0, Math.max(lowestEyeY - 0.25, -0.28));
+    batch.add(
+      getToneMaterial(bodyMaterial, "belly"),
+      bellyGeometry,
+      hit.point.clone().addScaledVector(hit.normal, -0.035),
+      new THREE.Quaternion().setFromUnitVectors(UP, hit.normal),
+      new THREE.Vector3(1.05 / stretchX, 0.22, 1.1 / stretchY)
+    );
+  }
+
+  const legPairs = Math.floor((parts.legs ?? 0) / 2);
+  const legMatrix = new THREE.Matrix4();
   for (let pair = 0; pair < legPairs; pair++) {
     const z = legPairs > 1 ? -0.25 + (0.5 * pair) / (legPairs - 1) : 0;
     for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(legGeometry, darkMaterial);
-      leg.position.set(side * 0.42, -0.35, z);
+      const below = probe.cast(side * 0.28, -3, z, 0, 1, 0);
+      const hipY = below
+        ? THREE.MathUtils.clamp(below.point.y + 0.06, -0.3, 0.1)
+        : -0.3;
+      const lateral = probe.cast(side * 3, hipY + 0.08, z, -side, 0, 0);
+      const hipX =
+        side *
+        Math.max((lateral ? Math.abs(lateral.point.x) : 0.45) * 0.9, 0.16);
+      const length = Math.max(hipY - LOCAL_GROUND_Y, 0.14);
+
+      const shin = legUnitGeometry
+        .clone()
+        .applyMatrix4(legMatrix.makeScale(1, length, 1));
+      const foot = footGeometry
+        .clone()
+        .applyMatrix4(legMatrix.makeTranslation(0, -length + 0.03, 0.04));
+      const legGeometry = mergeGeometries([shin, foot]);
+      shin.dispose();
+      foot.dispose();
+      ownedGeometries.push(legGeometry);
+
+      const leg = new THREE.Group();
+      leg.position.set(hipX, hipY, z);
+      leg.rotation.z = side * 0.12;
+      const legMesh = new THREE.Mesh(legGeometry, darkMaterial);
+      leg.add(legMesh);
       group.add(leg);
-      flashEntries.push({ mesh: leg, material: darkMaterial });
+      flashEntries.push({ mesh: legMesh, material: darkMaterial });
       animatedParts.push({
         mesh: leg,
         kind: "leg",
@@ -406,38 +827,82 @@ export function buildMonsterBody(genome, bodyMaterial) {
     }
   }
 
-  for (let i = 0; i < genome.parts.tailSegments; i++) {
-    const segment = new THREE.Mesh(tailGeometry, bodyMaterial);
-    segment.scale.setScalar(Math.max(1 - i * 0.16, 0.25));
-    segment.position.set(0, 0.05 + i * 0.03, -(0.52 + i * 0.16));
-    group.add(segment);
-    flashEntries.push({ mesh: segment, material: bodyMaterial });
-    animatedParts.push({
-      mesh: segment,
-      kind: "tail",
-      phase: i * 0.7,
-      amplitude: 0.04 + i * 0.03,
-    });
+  const tailSegments = parts.tailSegments ?? 0;
+  if (tailSegments > 0) {
+    const back = probe.cast(0, 0.05, -3, 0, 0, 1);
+    const backZ = back ? back.point.z : -0.45;
+    for (let i = 0; i < tailSegments; i++) {
+      const segment = new THREE.Mesh(tailGeometry, bodyMaterial);
+      segment.scale.setScalar(Math.max(1 - i * 0.16, 0.25));
+      segment.position.set(0, 0.05 + i * 0.03, backZ + 0.04 - i * 0.16);
+      group.add(segment);
+      flashEntries.push({ mesh: segment, material: bodyMaterial });
+      animatedParts.push({
+        mesh: segment,
+        kind: "tail",
+        phase: i * 0.7,
+        amplitude: 0.04 + i * 0.03,
+      });
+      if (i === tailSegments - 1) {
+        const tip = new THREE.Mesh(tailTipGeometry, darkMaterial);
+        tip.position.z = -0.15;
+        segment.add(tip);
+        flashEntries.push({ mesh: tip, material: darkMaterial });
+      }
+    }
   }
 
-  for (let i = 0; i < genome.parts.plates; i++) {
-    const side = i % 2 === 0 ? 1 : -1;
-    const plate = new THREE.Mesh(plateGeometry, plateMaterial);
-    plate.position.set(side * 0.46, 0.06, -0.15 + Math.floor(i / 2) * 0.3);
-    plate.rotation.z = side * 0.15;
-    group.add(plate);
-    flashEntries.push({ mesh: plate, material: plateMaterial });
-  }
-
-  if (genome.parts.antennae) {
+  if (parts.arms) {
     for (const side of [-1, 1]) {
+      const shoulder = probe.cast(side * 3, 0.02, 0.1, -side, 0, 0);
+      const arm = new THREE.Group();
+      arm.position.set(
+        (shoulder ? shoulder.point.x : side * 0.45) - side * 0.03,
+        0.02,
+        0.1
+      );
+      arm.rotation.set(-0.55, 0, side * 0.35);
+      const armMesh = new THREE.Mesh(armGeometry, bodyMaterial);
+      const claws = new THREE.Mesh(clawsGeometry, hornMaterial);
+      arm.add(armMesh, claws);
+      group.add(arm);
+      flashEntries.push(
+        { mesh: armMesh, material: bodyMaterial },
+        { mesh: claws, material: hornMaterial }
+      );
+      animatedParts.push({
+        mesh: arm,
+        kind: "arm",
+        phase: side > 0 ? 0 : Math.PI,
+        baseRotX: -0.55,
+      });
+    }
+  }
+
+  if (parts.wings) {
+    for (const side of [-1, 1]) {
+      const root = probe.radial(side * 0.5, 0.7, -0.35);
+      const wing = new THREE.Group();
+      wing.position.copy(root.point).addScaledVector(root.normal, -0.02);
+      wing.scale.x = side;
+      const wingMesh = new THREE.Mesh(wingGeometry, wingMaterial);
+      wing.add(wingMesh);
+      group.add(wing);
+      flashEntries.push({ mesh: wingMesh, material: wingMaterial });
+      animatedParts.push({ mesh: wing, kind: "wing", phase: 0, side });
+    }
+  }
+
+  if (parts.antennae) {
+    for (const side of [-1, 1]) {
+      const root = probe.radial(side * 0.25, 1, 0.3);
       const antenna = new THREE.Group();
       const stalk = new THREE.Mesh(antennaGeometry, darkMaterial);
       stalk.position.y = 0.16;
       const tip = new THREE.Mesh(antennaTipGeometry, hornMaterial);
       tip.position.y = 0.34;
       antenna.add(stalk, tip);
-      antenna.position.set(side * 0.14, 0.45, 0.08);
+      antenna.position.copy(root.point).addScaledVector(root.normal, -0.02);
       antenna.rotation.z = -side * 0.3;
       group.add(antenna);
       flashEntries.push(
@@ -453,6 +918,17 @@ export function buildMonsterBody(genome, bodyMaterial) {
     }
   }
 
+  for (const mesh of batch.build()) {
+    group.add(mesh);
+    ownedGeometries.push(mesh.geometry);
+    flashEntries.push({ mesh, material: mesh.material });
+  }
+  for (const mesh of pupilBatch.build()) {
+    group.add(mesh);
+    ownedGeometries.push(mesh.geometry);
+    eyes.push(mesh);
+  }
+
   group.traverse((child) => {
     if (child.isMesh) {
       child.castShadow = true;
@@ -460,5 +936,12 @@ export function buildMonsterBody(genome, bodyMaterial) {
     }
   });
 
-  return { group, coreGeometry, flashEntries, eyes, animatedParts };
+  return {
+    group,
+    coreGeometry,
+    ownedGeometries,
+    flashEntries,
+    eyes,
+    animatedParts,
+  };
 }

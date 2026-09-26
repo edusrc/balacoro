@@ -106,7 +106,7 @@ export class Mimic extends Enemy {
     super(target, spawnPosition, speed, health, difficulty, false, "tank");
 
     this.remove(this.mesh);
-    this.coreGeometry.dispose();
+    this.disposeBodyGeometries();
     if (this.isElite) {
       this.baseMaterial.dispose();
       this.eliteAura.material.dispose();

@@ -8,6 +8,14 @@ import { Item } from "../objects/Item.js";
 import { showDamageText } from "../components/DamageText.js";
 import { audio } from "../core/AudioEngine.js";
 import { spawnRingWave } from "../core/powers.js";
+import { updateKillEffects } from "../core/killEffects.js";
+import { updatePowerFx } from "../core/powerFx.js";
+import { getAchievementReward } from "../core/shopCatalog.js";
+import {
+  ACHIEVEMENTS,
+  incrementStat,
+  raiseStat,
+} from "../core/achievements.js";
 import {
   DIFFICULTY_COLOR_MAX_LEVEL,
   SKULL_CRAZE_START,
@@ -40,6 +48,8 @@ import {
   BOSS_SPEED,
   BOSS_SPAWN_EVERY_LEVELS,
   POST_MAX_BOSS_CHANCE_PER_LEVEL,
+  CAMP_TRIGGER_DISTANCE,
+  CAMP_GUARD_COUNT,
 } from "../constants.js";
 
 const NON_REPEATABLE_SKILLS = new Set([
@@ -55,6 +65,7 @@ export class MainScene extends THREE.Scene {
     this.isManuallyPaused = false;
     this.isLevelUpModalOpen = false;
     this.isSkillChoiceModalOpen = false;
+    this.pendingLevelUps = 0;
     this.isGameOver = false;
     this.onGameOver = null;
     this.onPauseChange = null;
@@ -74,6 +85,7 @@ export class MainScene extends THREE.Scene {
     this.elapsedTime = 0;
     this.currentDifficulty = 0;
     this.highestBossDifficultySpawned = 0;
+    this.lootedCamps = new Set();
 
     this.enemySpawnTimer = 0;
     this.nextEnemySpawnTime = this._getRandomFloat(
@@ -97,9 +109,12 @@ export class MainScene extends THREE.Scene {
   _initPlayer() {
     this.player = new Player(this.inputController);
     this.player.onLevelUp = () => {
+      this.pendingLevelUps += 1;
       this.isPaused = true;
       this.clock.stop();
-      this._showLevelUpOptions();
+      if (!this.isSkillChoiceModalOpen) {
+        this._showLevelUpOptions();
+      }
     };
     this.player.onGameOver = () => {
       this.isPaused = true;
@@ -122,6 +137,7 @@ export class MainScene extends THREE.Scene {
       elapsedTime: this.elapsedTime,
       coinsEarned: this.coinsEarned,
       highestBossDifficultySpawned: this.highestBossDifficultySpawned,
+      lootedCamps: [...this.lootedCamps],
       worldSeed: this.tileManager.seed,
       player: this.player.captureState(),
       enemies: this.enemies
@@ -138,6 +154,7 @@ export class MainScene extends THREE.Scene {
     this.coinsEarned = snapshot.coinsEarned ?? 0;
     this.highestBossDifficultySpawned =
       snapshot.highestBossDifficultySpawned ?? 0;
+    this.lootedCamps = new Set(snapshot.lootedCamps ?? []);
     if (snapshot.worldSeed != null) {
       this.tileManager = new WorldTileManager(this, 20, snapshot.worldSeed);
     }
@@ -274,23 +291,31 @@ export class MainScene extends THREE.Scene {
   _showLevelUpOptions() {
     this.isLevelUpModalOpen = true;
     if (this.onShowLevelUp) {
-      this.onShowLevelUp();
+      this.onShowLevelUp(this.pendingLevelUps);
     }
+  }
+
+  _resumeAfterChoice() {
+    if (this.pendingLevelUps > 0) {
+      this._showLevelUpOptions();
+      return;
+    }
+    this.clock.start();
+    this.isPaused = false;
   }
 
   choosePassive(passive) {
     const value = PLAYER_PASSIVES[passive].increment;
     this.player.applyPassiveEffect({ type: passive, value });
     this.isLevelUpModalOpen = false;
-    this.clock.start();
-    this.isPaused = false;
+    this.pendingLevelUps = Math.max(this.pendingLevelUps - 1, 0);
+    this._resumeAfterChoice();
   }
 
   chooseSkill(skill) {
     this.player.applySkillEffect(skill);
     this.isSkillChoiceModalOpen = false;
-    this.clock.start();
-    this.isPaused = false;
+    this._resumeAfterChoice();
   }
 
   _getRandomFloat(min, max) {
@@ -313,7 +338,10 @@ export class MainScene extends THREE.Scene {
         spawnCenter.set(candidateX, 1.5, candidateZ),
         new THREE.Vector3(3, 3, 3)
       );
-      if (!this.tileManager.intersectsSolid(spawnBox)) {
+      if (
+        !this.tileManager.intersectsSolid(spawnBox) &&
+        !this.tileManager.isHazardAt(candidateX, candidateZ)
+      ) {
         return new THREE.Vector3(candidateX, 0, candidateZ);
       }
     }
@@ -347,6 +375,59 @@ export class MainScene extends THREE.Scene {
     this._spawnItemAt(position);
   }
 
+  _updateCamps() {
+    const { x, z } = this.player.position;
+    for (const poi of this.tileManager.getPointsOfInterest()) {
+      if (poi.type !== "camp" || this.lootedCamps.has(poi.id)) {
+        continue;
+      }
+      if (Math.hypot(poi.x - x, poi.z - z) > CAMP_TRIGGER_DISTANCE) {
+        continue;
+      }
+      this.lootedCamps.add(poi.id);
+      const towardPlayer = new THREE.Vector3(x - poi.x, 0, z - poi.z);
+      if (towardPlayer.lengthSq() < 1e-4) {
+        towardPlayer.set(1, 0, 0);
+      }
+      const chestPosition = new THREE.Vector3(poi.x, 0, poi.z).addScaledVector(
+        towardPlayer.normalize(),
+        2.4
+      );
+      this.tileManager.pushOutCircle(chestPosition, 0.6);
+      this._spawnItemAt(chestPosition);
+      const guards = CAMP_GUARD_COUNT + Math.floor(this.currentDifficulty / 10);
+      for (let index = 0; index < guards; index++) {
+        const angle = (index / guards) * Math.PI * 2;
+        const spawn = new THREE.Vector3(
+          poi.x + Math.cos(angle) * 5.5,
+          0,
+          poi.z + Math.sin(angle) * 5.5
+        );
+        this.tileManager.pushOutCircle(spawn, 0.8);
+        const power = this.currentDifficulty;
+        const guard = new Enemy(
+          this.player,
+          spawn,
+          4,
+          BASE_ENEMY_HEALTH + power * ENEMY_HEALTH_GROWTH,
+          power,
+          false,
+          undefined,
+          { isElite: true }
+        );
+        this.add(guard);
+        this.enemies.push(guard);
+      }
+      audio.play("campAlert");
+      this._announce(
+        "ABANDONED CAMP",
+        "#ffb050",
+        "⛺",
+        "ELITES GUARD THE LOOT"
+      );
+    }
+  }
+
   _spawnEnemy(difficulty) {
     const postMaxLevels = Math.max(
       this.currentDifficulty - DIFFICULTY_COLOR_MAX_LEVEL,
@@ -372,7 +453,13 @@ export class MainScene extends THREE.Scene {
       spawnPosition.x,
       spawnPosition.z
     );
-    const biasMap = { snow: "tank", desert: "runner", city: "brute" };
+    const biasMap = {
+      snow: "tank",
+      desert: "runner",
+      volcanic: "brute",
+      crystal: "runner",
+      swamp: "tank",
+    };
     const bias = biasMap[biome];
     const forcedArchetype =
       bias && Math.random() < ENEMY_BIOME_BIAS_CHANCE ? bias : undefined;
@@ -422,6 +509,38 @@ export class MainScene extends THREE.Scene {
     if (options.announce !== false) {
       audio.play("bossSpawn");
       this._announce("A BOSS HAS APPEARED", "#ff3333", "☠", "IT HUNTS YOU");
+    }
+  }
+
+  _announceAchievements(achievementIds) {
+    for (const id of achievementIds) {
+      const achievement = ACHIEVEMENTS[id];
+      if (!achievement) {
+        continue;
+      }
+      audio.play("achievementUnlock");
+      this.onAchievement?.({
+        id,
+        label: achievement.label,
+        description: achievement.description,
+        reward: getAchievementReward(id),
+      });
+    }
+  }
+
+  onBossKilled() {
+    this._announceAchievements(incrementStat("bossKills"));
+  }
+
+  onFirstNightfall() {
+    if (!this.player.hasTakenDamage) {
+      this._announceAchievements(incrementStat("flawlessDays"));
+    }
+  }
+
+  onBloodMoonSurvived() {
+    if (!this.isGameOver) {
+      this._announceAchievements(incrementStat("bloodMoonsSurvived"));
     }
   }
 
@@ -498,8 +617,11 @@ export class MainScene extends THREE.Scene {
         enemy.solidCheckTimer = ENEMY_SOLID_CHECK_INTERVAL;
         if (
           !enemy.isDying &&
-          this.tileManager.intersectsSolid(
-            enemy.getCollisionBoxAt(enemy.position)
+          !enemy.isDormant &&
+          this.tileManager.isCircleBlocked(
+            enemy.position.x,
+            enemy.position.z,
+            Math.max(enemy.hitboxRadius * 0.35, 0.1)
           )
         ) {
           const spawnPosition = this._getRandomSpawnAroundPlayer(
@@ -516,7 +638,10 @@ export class MainScene extends THREE.Scene {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const item = this.items[i];
       item.update(delta);
-      if (item.position.distanceToSquared(this.player.position) < 1) {
+      if (
+        !this.isPaused &&
+        item.position.distanceToSquared(this.player.position) < 1
+      ) {
         audio.play("chestPickup");
         this.isPaused = true;
         this.clock.stop();
@@ -637,6 +762,10 @@ export class MainScene extends THREE.Scene {
             projectile.isCritical,
             overchargeSkill?.enabled ? "powerOvercharge" : null
           );
+          enemy.applyKnockback?.(
+            projectile.direction,
+            projectile.isCritical ? 7 : 4
+          );
           if (projectile.isCritical) {
             const hitPosition = enemy.position.clone();
             hitPosition.y += enemy.size ?? 1;
@@ -698,7 +827,11 @@ export class MainScene extends THREE.Scene {
       enemy.damageTimer = (enemy.damageTimer || 0) - delta;
       const minDist = playerRadius + enemy.hitboxRadius;
       const distSq = enemy.position.distanceToSquared(this.player.position);
-      if (distSq < minDist * minDist && enemy.damageTimer <= 0) {
+      if (
+        distSq < minDist * minDist &&
+        enemy.damageTimer <= 0 &&
+        !enemy.isFrozen
+      ) {
         const damage =
           (BASE_ENEMY_DAMAGE + ENEMY_DAMAGE_GROWTH * enemy.difficulty) *
           enemy.damageMultiplier *
@@ -770,6 +903,14 @@ export class MainScene extends THREE.Scene {
     );
     this.currentDifficulty = INITIAL_DIFFICULTY + difficulty;
     this.currentPower = this.currentDifficulty;
+    if (!this._skullMaxPlayed && this.currentDifficulty >= DIFFICULTY_COLOR_MAX_LEVEL) {
+      this._skullMaxPlayed = true;
+      audio.play("skullMax");
+    }
+    if (this.currentDifficulty > (this._recordedPower ?? -1)) {
+      this._recordedPower = this.currentDifficulty;
+      this._announceAchievements(raiseStat("maxPower", this.currentDifficulty));
+    }
     this.currentPowerContinuous =
       effectiveSeconds / DIFFICULTY_INCREASE_INTERVAL_SECONDS;
 
@@ -821,11 +962,14 @@ export class MainScene extends THREE.Scene {
 
     this.player.update(delta);
     const { x, y, z } = this.player.position;
-    this.tileManager.update(x, z);
+    this.tileManager.update(x, z, delta);
+    this._updateCamps();
 
     this._updateProjectiles(delta);
     this._updateEnemies(delta);
     this._updatePowerEffects(delta);
+    updateKillEffects(this, delta);
+    updatePowerFx(this, delta);
     this._updateItems(delta);
     this._resolveCollisions(delta);
     this._updateSpawns(delta, difficulty);

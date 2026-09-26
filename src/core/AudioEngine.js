@@ -15,6 +15,8 @@ export class AudioEngine {
     this.loops = new Map();
     this.schedulers = new Map();
     this.activeHandles = new Set();
+    this.activeSources = new Set();
+    this.generation = 0;
     this.currentMusic = null;
     this.pausedMusic = null;
     this.primedResume = null;
@@ -242,12 +244,26 @@ export class AudioEngine {
         Math.max((this.activeCounts.get(name) ?? 1) - 1, 0)
       );
 
+    const generation = this.generation;
+    const alignContextTime = options.alignAt
+      ? now + options.alignAt.secondsFromNow
+      : null;
     this._loadBuffer(url)
       .then((buffer) => {
+        if (generation !== this.generation) {
+          release();
+          return;
+        }
         const source = context.createBufferSource();
         source.buffer = buffer;
+        if (sound.pitchVariance > 0) {
+          source.playbackRate.value = 1 + (Math.random() * 2 - 1) * sound.pitchVariance;
+        }
         const gain = context.createGain();
-        gain.gain.value = sound.maxVolume;
+        gain.gain.value =
+          sound.maxVolume *
+          (1 - Math.random() * (sound.volumeVariance ?? 0)) *
+          (options.volume ?? 1);
 
         if (sound.spatial && options.position) {
           const panner = context.createPanner();
@@ -264,8 +280,28 @@ export class AudioEngine {
         }
 
         gain.connect(this._busFor(sound));
-        source.onended = release;
-        source.start();
+        const entry = { source, gain };
+        this.activeSources.add(entry);
+        source.onended = () => {
+          this.activeSources.delete(entry);
+          release();
+        };
+        if (alignContextTime !== null) {
+          const startNow = context.currentTime;
+          const remaining = alignContextTime - startNow;
+          const fileTime = options.alignAt.fileTime;
+          if (remaining >= fileTime) {
+            source.start(startNow + (remaining - fileTime), 0);
+          } else {
+            const offset = Math.min(
+              Math.max(fileTime - remaining, 0),
+              Math.max(buffer.duration - 0.01, 0)
+            );
+            source.start(startNow, offset);
+          }
+        } else {
+          source.start();
+        }
       })
       .catch(release);
   }
@@ -723,7 +759,23 @@ export class AudioEngine {
   }
 
   stopAll() {
+    this.generation += 1;
     this.schedulers.clear();
+    if (this.context) {
+      const now = this.context.currentTime;
+      for (const { source, gain } of this.activeSources) {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(0.0001, now + 0.15);
+        try {
+          source.stop(now + 0.2);
+        } catch {
+          source.disconnect();
+        }
+      }
+    }
+    this.activeSources.clear();
+    this.activeCounts.clear();
     for (const name of [...this.loops.keys()]) {
       this.stopLoop(name);
     }
